@@ -12,4 +12,16 @@
 
 Для теста клиенту требуются **отдельно предоставленные пользователем** файлы `assets0.pk3`–`assets3.pk3` Jedi Academy. Не добавляйте их, Minecraft assets, кэши загрузки, сохранения, логи или персональные настройки в коммиты. Первый запуск клиента требует сети для подготовки зависимостей Minecraft.
 
-The same applies in English: this is a source tree, not a one-command portable build. The current packaging script expects local build artifacts. Game data and personal runtime files are intentionally ignored by Git.
+## English
+
+This public repository contains source code, not a portable game build. Releases are currently assembled on Windows. `launcher/Build-Release.ps1` expects previously prepared local `dist/`, `.tools/` and compiled outputs, so **a fresh clone cannot produce a complete client with one command**. Those directories are deliberately excluded from Git.
+
+Components:
+
+1. **Minecraft mod:** `SkyCraft-main/fabric/` requires Java 25 and the Gradle Wrapper (`gradlew.bat`). Minecraft, Fabric Loader and Fabric API versions are pinned in `gradle.properties`. From that directory, run `gradlew.bat build` with `JAVA_HOME` pointing to Java 25.
+2. **OpenJK:** Build `OpenJK-master/` with CMake and an x86 Visual C++ toolchain. JKCraft's OpenJK changes are part of this source tree and must be compiled together. A DLL from an older client build is not interchangeable.
+3. **Launcher:** `launcher/src/JKCraftLauncher.java` requires Java 17 or later; the standalone client includes Java 25. `launcher/Build-Launcher.ps1` builds its JAR using a local Java SDK in `.tools/`. The release script copies that JAR and the compiled components into a client folder.
+
+If you change `OpenJK-master/code/jkcraft/jkc_protocol.h`, rebuild **all three** OpenJK components: `openjk_sp.x86.exe`, `jagamex86.dll` and `rdsp-vanilla_x86.dll`. Keeping an old renderer DLL can make Minecraft invisible even when the bridge and controls are working.
+
+Testing requires Jedi Academy's `assets0.pk3`–`assets3.pk3` files, supplied separately by the player. Do not commit those files, Minecraft assets, download caches, saves, logs or personal settings. The first client launch needs an internet connection to prepare Minecraft dependencies.
