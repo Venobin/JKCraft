@@ -1,0 +1,8 @@
+# Происхождение и лицензии / Attribution and licenses
+
+- **JKCraft additions** (launcher, scripts, documentation and Minecraft-side changes written for JKCraft) use the [MIT license](LICENSE). Venobin is credited as the JKCraft project author. Codex is acknowledged as an AI development tool in [AUTHORS.md](AUTHORS.md), not as a copyright holder.
+- **[SkyCraft](https://github.com/chasmlol/SkyCraft)** by chasmlol is the basis of JKCraft's Minecraft integration. The original copyright notice and MIT license are preserved in [`SkyCraft-main/LICENSE`](SkyCraft-main/LICENSE). Its original README remains in [`SkyCraft-main/README.md`](SkyCraft-main/README.md). JKCraft modifies this code substantially for Jedi Academy; historical `skycraft` names remain for compatibility.
+- **[OpenJK](https://github.com/JACoders/OpenJK)** is the basis of the Jedi Academy engine integration. Its copyright notices and GPL-2.0 license text are preserved in [`OpenJK-master/LICENSE.txt`](OpenJK-master/LICENSE.txt), along with notices in individual source files.
+- Third-party dependencies retain their respective notices in their source trees and in the packaged client's `licenses/` and runtime legal directories. [`SkyCraft-main/THIRD-PARTY-NOTICES.md`](SkyCraft-main/THIRD-PARTY-NOTICES.md) documents dependencies of the original SkyCraft project, not necessarily the exact JKCraft release contents.
+
+This repository contains components under different licenses; this page does not replace their license texts. The root MIT license does **not** replace the GPL-2.0 license of the modified OpenJK tree. Jedi Academy and Minecraft game assets are not part of the source repository.

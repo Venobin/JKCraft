@@ -1,0 +1,12 @@
+gradle.projectsEvaluated {
+    gradle.rootProject.tasks.register('inspectJkcRun') {
+        doLast {
+            def task = gradle.rootProject.tasks.findByName('runClient')
+            if (task == null) throw new GradleException('runClient missing')
+            println('JKC_MAIN=' + task.mainClass.get())
+            println('JKC_CP=' + task.classpath.files.collect { it.absolutePath }.join('|'))
+            println('JKC_JVM=' + task.jvmArgs.join('|'))
+            println('JKC_ARGS=' + task.args.join('|'))
+        }
+    }
+}

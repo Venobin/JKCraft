@@ -1,0 +1,62 @@
+# Local tools, caches, tests and backups
+/.tools/
+/.gradle-cache/
+/.runtime*/
+/backups/
+/dist/
+/releases/
+/JKCraft-GitHub/
+/RuntimeCache/
+/GameResources/
+/UserData/
+**/GameResources/
+**/UserData/
+**/RuntimeCache/
+**/.gradle/
+**/run/
+/.vs/
+/.idea/
+/.vscode/
+
+# Generated launchers and build output
+/JKCraft-OfflineLauncher.jar
+/JKCraft-Launcher.cmd
+/JKCraft-OfflineLauncher.cmd
+/launcher/build/
+/OpenJK-master/build*/
+/OpenJK-master/stage-jkcraft/
+/OpenJK-master/.github/
+/SkyCraft-main/fabric/.gradle/
+/SkyCraft-main/fabric/build/
+/SkyCraft-main/fabric/run/
+/SkyCraft-main/fabric/out/
+/SkyCraft-main/fabric/.idea/
+
+# SkyCraft's original Skyrim tooling is not used by JKCraft.
+/SkyCraft-main/skse/
+/SkyCraft-main/tools/
+/SkyCraft-main/.gitmodules
+
+# Never commit game data or private runtime state, even if moved.
+*.pk3
+*.ess
+*.ess.bak
+*.log
+**/saves/
+**/screenshots/
+**/launcher_accounts.json
+**/usercache.json
+**/options.txt
+**/offline-launcher.properties
+
+# Editor and OS files
+*.user
+*.suo
+*.pdb
+*.ilk
+*.obj
+*.pyc
+__pycache__/
+Thumbs.db
+Desktop.ini
+.DS_Store

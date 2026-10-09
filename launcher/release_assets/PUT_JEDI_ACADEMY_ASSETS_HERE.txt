@@ -1,0 +1,2 @@
+Place your own Jedi Academy assets0.pk3, assets1.pk3, assets2.pk3 and
+assets3.pk3 in this folder. Do not redistribute those game files with JKCraft.

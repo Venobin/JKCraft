@@ -1,0 +1,49 @@
+JKCRAFT 0.1.2 ALPHA — INSTALLATION
+==================================
+
+This is the first test client for Windows. The mod does not include original
+Jedi Academy or Minecraft assets. Use it only with your own copies of both
+games. Multiplayer is not ready; your chosen nickname is local only.
+JKCraft is created by Venobin with AI-assisted development using Codex
+(OpenAI). OpenAI is not the author or publisher of this project.
+JKCraft is based on SkyCraft by chasmlol (https://github.com/chasmlol/SkyCraft)
+and uses modified OpenJK (https://github.com/JACoders/OpenJK).
+
+1. Extract the entire JKCraft-0.1.2-alpha folder. Do not move the JAR alone.
+2. Copy assets0.pk3, assets1.pk3, assets2.pk3 and assets3.pk3 from your clean
+   Jedi Academy installation into:
+
+   GameResources\JediAcademy\GameData\base\
+
+   The launcher always uses this folder inside JKCraft. Choosing another
+   folder is disabled.
+3. Run JKCraft.cmd. It uses the bundled Java 25 runtime, so a separate Java
+   installation is not required. You may open JKCraft-Launcher.jar directly
+   if Windows has Java 17 or newer associated with JAR files.
+4. Enter a nickname (Jaden by default) and click PLAY.
+   RUS/EN switches the launcher language and saves your choice.
+5. The first launch needs internet access to prepare Minecraft 26.3, Fabric
+   and libraries in RuntimeCache. This can take several minutes and plenty
+   of disk space. Later launches use the local cache. No account is entered
+   for this local test mode. The launcher shows the current step and a file
+   name when available. The bar remains indeterminate while the total work
+   is unknown.
+6. The game appears in the OpenJK window. While playing, the launcher button
+   turns red and says CLOSE. It stops the game; closing the launcher window
+   also stops the OpenJK and Minecraft processes it started.
+
+GameResources\Minecraft\GameData holds Minecraft settings, worlds, resource
+packs and other data. Preserve it when updating. Jedi Academy saves are in
+UserData\OpenJK\saves; preserve them too.
+
+For errors, check UserData\launcher.log. Confirm that Jedi Academy GameData
+contains all four assets*.pk3 files and that internet is available for the
+first setup. Local mode does not verify Minecraft ownership or grant access
+to official online servers under an arbitrary nickname. Do not add copyrighted
+game assets, personal saves or credentials when sharing this folder.
+
+Modified OpenJK source is in the JKCraft project, not the client ZIP. Licenses are in
+licenses and Runtime\Java25; SkyCraft's license is preserved as
+licenses\SkyCraft-LICENSE.txt. New JKCraft components use MIT
+(licenses\JKCraft-LICENSE.txt); modified OpenJK remains GPL-2.0
+(licenses\OpenJK-LICENSE.txt).
