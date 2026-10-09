@@ -8,7 +8,7 @@ JKCraft — экспериментальный одиночный клиент, 
 
 ## Играть
 
-Готовый автономный клиент распространяется отдельным архивом, а не в исходном репозитории. Если опубликован выпуск, распакуйте его целиком и следуйте `INSTALLATION_RU.txt` или `INSTALLATION_EN.txt` внутри архива. Потребуются ваши игровые ресурсы Jedi Academy; при первом запуске Minecraft/Fabric и зависимости загружаются в локальный кэш. Не помещайте игровые ресурсы в Git-репозиторий.
+Готовый клиент для Windows: **[скачать JKCraft 0.1.2 Alpha](https://github.com/Venobin/JKCraft/releases/tag/v0.1.2-alpha)**. Архив находится в разделе Releases, а не среди исходников. Распакуйте его целиком и следуйте `INSTALLATION_RU.txt` внутри архива. Потребуются ваши игровые ресурсы Jedi Academy; при первом запуске Minecraft/Fabric и зависимости загружаются в локальный кэш. Не помещайте игровые ресурсы в Git-репозиторий.
 
 В папке клиента запускайте `JKCraft.cmd`. По умолчанию локальный ник — `Jaden`; его можно изменить в лаунчере. Во время игры кнопка становится красной «ЗАКРЫТЬ». Закрытие OpenJK завершает скрытый Minecraft, но лаунчер остаётся открытым для следующего запуска; закрытие лаунчера завершает оба запущенных им игровых процесса. Сохранения и настройки лежат в `GameResources` и `UserData` внутри клиента — сохраняйте эти папки при обновлении.
 
@@ -19,8 +19,7 @@ JKCraft — экспериментальный одиночный клиент, 
 | `OpenJK-master/` | Изменённый OpenJK и код связи с Minecraft. |
 | `SkyCraft-main/fabric/` | Fabric-мод Minecraft, унаследованный от SkyCraft и адаптированный для Jedi Academy. |
 | `launcher/` | Java-лаунчер, сценарии запуска и тексты клиентского выпуска. |
-| `Start-JKCraft-Playtest.ps1` | Локальный сценарий разработчика; не готовый клиент. |
-| `JKCRAFT_STATUS.md` | Исторический технический журнал, а не актуальная инструкция установки. |
+| `Start-JKCraft-Playtest.ps1` | Внутренний сценарий тестирования, которому нужны локальные собранные компоненты; не способ запустить чистую копию репозитория. |
 
 Сборка и ограничения процесса описаны в [BUILDING.md](BUILDING.md). Для сообщения об ошибке укажите карту, действия для воспроизведения и версии клиента; перед публикацией логов удалите личные данные и локальные пути.
 
@@ -38,7 +37,7 @@ Current status: **0.1.2 alpha, Windows, single-player**. This is a playtest buil
 
 ### Playing
 
-This repository contains **source code only**. It does not contain either game's assets or a ready-to-run client. A playable client, when published, is distributed as a separate archive. Extract the whole archive and follow its `INSTALLATION_EN.txt` instructions. You must provide your own Jedi Academy game assets. The first launch downloads the Minecraft/Fabric components and dependencies into a local cache. Do not add game assets to this repository.
+Windows client: **[download JKCraft 0.1.2 Alpha](https://github.com/Venobin/JKCraft/releases/tag/v0.1.2-alpha)**. The archive is attached to the GitHub Release, not stored in the source tree. Extract it completely and follow its `INSTALLATION_EN.txt` instructions. You must provide your own Jedi Academy game assets. The first launch downloads the Minecraft/Fabric components and dependencies into a local cache. Do not add game assets to this repository.
 
 Run `JKCraft.cmd` from the extracted client folder. The default offline player name is `Jaden`, and you can change it in the launcher. While the game is running, the Play button becomes a red Close button. Closing OpenJK stops its background Minecraft process but leaves the launcher open; closing the launcher stops both game processes it started. Keep the client's `GameResources` and `UserData` folders when updating if you want to preserve saves and settings.
 
@@ -49,7 +48,6 @@ Run `JKCraft.cmd` from the extracted client folder. The default offline player n
 | `OpenJK-master/` | Modified OpenJK engine and the Minecraft bridge. |
 | `SkyCraft-main/fabric/` | Fabric mod adapted from SkyCraft for Jedi Academy. |
 | `launcher/` | Java launcher, startup and packaging scripts, and client release text. |
-| `Start-JKCraft-Playtest.ps1` | Local developer playtest script, not a standalone client. |
-| `JKCRAFT_STATUS.md` | Historical technical development log, not current installation instructions. |
+| `Start-JKCraft-Playtest.ps1` | Internal playtest script requiring local build artifacts; it cannot launch a fresh clone. |
 
 For build requirements and current packaging limitations, see [BUILDING.md](BUILDING.md). This is not yet a one-command build from a fresh clone. Before reporting a bug, note the level, steps to reproduce it and client version; remove personal information and local paths from any logs you share. Review [PUBLISHING.md](PUBLISHING.md) before committing files or preparing a release.

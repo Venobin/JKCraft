@@ -6,7 +6,7 @@
 
 1. В репозитории нет `GameResources`, `UserData`, `RuntimeCache`, `dist`, `releases`, сохранений, логов, аккаунтов и файлов `assets*.pk3`.
 2. В README указаны происхождение SkyCraft и OpenJK, а файлы `LICENSE`, `SkyCraft-main/LICENSE` и `OpenJK-master/LICENSE.txt` сохранены.
-3. Не загружайте автономный клиент и исходники в один и тот же Git-коммит. Готовый клиент можно выпускать отдельно после самостоятельной проверки лицензий и состава архива.
+3. Не загружайте автономный клиент в Git-коммит с исходниками. После проверки лицензий и состава архива прикрепляйте его к отдельному GitHub Release.
 4. Выполните `git status --short` и просмотрите новые файлы перед `git add` и `git push`.
 
 Исходный репозиторий: [Venobin/JKCraft](https://github.com/Venobin/JKCraft). Он содержит отдельную копию исходников; локальные рабочие каталоги, кэши и игровые файлы в него не входят.
@@ -19,7 +19,7 @@ Before each commit or release:
 
 1. Keep `GameResources`, `UserData`, `RuntimeCache`, `dist`, `releases`, saves, logs, account data and `assets*.pk3` out of the source repository.
 2. Preserve the SkyCraft and OpenJK attribution in the README and the license files at `LICENSE`, `SkyCraft-main/LICENSE` and `OpenJK-master/LICENSE.txt`.
-3. Package any standalone client separately from source commits, and review its contents and license notices before publishing it.
+3. Keep standalone clients out of source commits. Review the archive and license notices, then attach the client to a separate GitHub Release.
 4. Run `git status --short` and inspect new files before `git add` and `git push`.
 
 The source repository is [Venobin/JKCraft](https://github.com/Venobin/JKCraft). Local development directories, caches and game files are not part of it.
