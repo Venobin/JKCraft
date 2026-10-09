@@ -19,7 +19,6 @@ JKCraft — экспериментальный одиночный клиент, 
 | `OpenJK-master/` | Изменённый OpenJK и код связи с Minecraft. |
 | `SkyCraft-main/fabric/` | Fabric-мод Minecraft, унаследованный от SkyCraft и адаптированный для Jedi Academy. |
 | `launcher/` | Java-лаунчер, сценарии запуска и тексты клиентского выпуска. |
-| `Start-JKCraft-Playtest.ps1` | Внутренний сценарий тестирования, которому нужны локальные собранные компоненты; не способ запустить чистую копию репозитория. |
 
 Сборка и ограничения процесса описаны в [BUILDING.md](BUILDING.md). Для сообщения об ошибке укажите карту, действия для воспроизведения и версии клиента; перед публикацией логов удалите личные данные и локальные пути.
 
@@ -48,6 +47,5 @@ Run `JKCraft.cmd` from the extracted client folder. The default offline player n
 | `OpenJK-master/` | Modified OpenJK engine and the Minecraft bridge. |
 | `SkyCraft-main/fabric/` | Fabric mod adapted from SkyCraft for Jedi Academy. |
 | `launcher/` | Java launcher, startup and packaging scripts, and client release text. |
-| `Start-JKCraft-Playtest.ps1` | Internal playtest script requiring local build artifacts; it cannot launch a fresh clone. |
 
 For build requirements and current packaging limitations, see [BUILDING.md](BUILDING.md). This is not yet a one-command build from a fresh clone. Before reporting a bug, note the level, steps to reproduce it and client version; remove personal information and local paths from any logs you share. Review [PUBLISHING.md](PUBLISHING.md) before committing files or preparing a release.
