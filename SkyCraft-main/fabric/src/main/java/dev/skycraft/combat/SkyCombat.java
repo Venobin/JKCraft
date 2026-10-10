@@ -24,7 +24,9 @@ import net.minecraft.world.damagesource.DamageSources;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MobCategory;
+import net.minecraft.world.entity.monster.Enemy;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -54,6 +56,7 @@ public final class SkyCombat {
 
 	private static final Map<Integer, SkyrimActorEntity> PROXIES = new HashMap<>();
 	private static final List<SkyLink.Actor> ACTORS = new ArrayList<>();
+	private static final double MOB_COMBAT_RANGE = 18.0;
 
 	private SkyCombat() {
 	}
@@ -100,6 +103,7 @@ public final class SkyCombat {
 				SkyCraft.LOG.info("JKCraft: hit {} for {} (knockback {})", proxy.getName().getString(), hit[0], hit[3]);
 			}
 		}
+		interactWithMinecraftMobs(level);
 	}
 
 	private static void sync(ServerLevel level) {
@@ -123,6 +127,7 @@ public final class SkyCombat {
 			if (proxy == null) {
 				proxy = new SkyrimActorEntity(SKYRIM_ACTOR, level);
 				proxy.setFormId(a.formId());
+				proxy.setHostile(a.hostile());
 				proxy.setSize(a.width(), a.height());
 				proxy.snapTo(a.x(), a.y(), a.z(), a.yaw(), 0.0F);
 				if (!a.name().isEmpty()) {
@@ -135,6 +140,7 @@ public final class SkyCombat {
 				continue;
 			}
 			proxy.setSize(a.width(), a.height());
+			proxy.setHostile(a.hostile());
 			proxy.setPos(a.x(), a.y(), a.z());
 			proxy.setYRot(a.yaw());
 			proxy.setYHeadRot(a.yaw());
@@ -142,6 +148,60 @@ public final class SkyCombat {
 		}
 		if (PROXIES.size() != before && (PROXIES.size() % 5 == 0 || PROXIES.size() < 5)) {
 			SkyCraft.LOG.info("JKCraft: {} Jedi Academy actors mirrored as hittable stand-ins", PROXIES.size());
+		}
+	}
+
+	/** Hostile Minecraft mobs can acquire a friendly JA stand-in and damage the native actor. */
+	private static void interactWithMinecraftMobs(ServerLevel level) {
+		// Vanilla monsters normally only know their own hard-coded target classes. Give them a
+		// nearby friendly JA ally as a target when they currently have nothing valid to fight.
+		for (Entity entity : level.getAllEntities()) {
+			if (!(entity instanceof Mob mob) || !(mob instanceof Enemy) || !mob.isAlive()) {
+				continue;
+			}
+			LivingEntity current = mob.getTarget();
+			if (current != null && current.isAlive()) {
+				continue;
+			}
+			SkyrimActorEntity closest = null;
+			double best = MOB_COMBAT_RANGE * MOB_COMBAT_RANGE;
+			for (SkyrimActorEntity actor : PROXIES.values()) {
+				if (!actor.isAlive() || actor.hostile()) continue;
+				double distance = mob.distanceToSqr(actor);
+				if (distance < best && mob.hasLineOfSight(actor)) {
+					best = distance;
+					closest = actor;
+				}
+			}
+			if (closest != null) {
+				mob.setTarget(closest);
+			}
+		}
+	}
+
+	/** Applies a real native OpenJK NPC weapon hit to the addressed hostile Minecraft mob. */
+	public static void hurtMinecraftMob(MinecraftServer server, int entityId, int kind,
+		float jediDamage, int attackerFormId) {
+		if (entityId <= 0 || jediDamage <= 0.0F) return;
+		for (ServerLevel level : server.getAllLevels()) {
+			Entity entity = level.getEntity(entityId);
+			if (!(entity instanceof Mob mob) || !(mob instanceof Enemy) || !mob.isAlive()) continue;
+			SkyrimActorEntity attacker = PROXIES.get(attackerFormId);
+			if (attacker != null && (attacker.level() != level || attacker.distanceToSqr(mob) > 32.0 * 32.0)) {
+				attacker = null;
+			}
+			DamageSources sources = level.damageSources();
+			DamageSource source = switch (kind) {
+				case Proto.HURT_MELEE -> attacker != null ? sources.mobAttack(attacker) : sources.generic();
+				case Proto.HURT_PROJECTILE -> attacker != null ? sources.mobProjectile(attacker, attacker) : sources.generic();
+				case Proto.HURT_MAGIC -> attacker != null ? sources.indirectMagic(attacker, attacker) : sources.magic();
+				default -> sources.generic();
+			};
+			float damage = CombatBalance.jediToMinecraft(jediDamage);
+			if (damage > 0.0F) {
+				mob.hurtServer(level, source, damage);
+			}
+			return;
 		}
 	}
 

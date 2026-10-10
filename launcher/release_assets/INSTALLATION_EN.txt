@@ -1,4 +1,4 @@
-JKCRAFT 0.1.2 ALPHA — INSTALLATION
+JKCRAFT 0.1.3 ALPHA — INSTALLATION
 ==================================
 
 This is the first test client for Windows. The mod does not include original
@@ -9,7 +9,7 @@ JKCraft is created by Venobin with AI-assisted development using Codex
 JKCraft is based on SkyCraft by chasmlol (https://github.com/chasmlol/SkyCraft)
 and uses modified OpenJK (https://github.com/JACoders/OpenJK).
 
-1. Extract the entire JKCraft-0.1.2-alpha folder. Do not move the JAR alone.
+1. Extract the entire JKCraft-0.1.3-alpha folder. Do not move the JAR alone.
 2. Copy assets0.pk3, assets1.pk3, assets2.pk3 and assets3.pk3 from your clean
    Jedi Academy installation into:
 

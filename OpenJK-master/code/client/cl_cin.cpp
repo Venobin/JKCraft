@@ -2173,4 +2173,33 @@ qboolean CL_InGameCinematicOnStandBy(void)
 	return qbInGameCinematicOnStandBy;
 }
 
+qboolean CL_InGameCinematicFinished(void)
+{
+	if (!qbPlayingInGameCinematic)
+	{
+		return qfalse;
+	}
+	if (CL_handle < 0 || CL_handle >= MAX_VIDEO_HANDLES)
+	{
+		return qtrue;
+	}
+	return (cinTable[CL_handle].status == FMV_IDLE ||
+		cinTable[CL_handle].status == FMV_EOF) ? qtrue : qfalse;
+}
 
+unsigned int CL_InGameCinematicDebugBits(void)
+{
+	unsigned int bits = 0;
+	if (qbPlayingInGameCinematic) bits |= 1u << 0;
+	if (qbInGameCinematicOnStandBy) bits |= 1u << 1;
+	if (CL_InGameCinematicFinished()) bits |= 1u << 2;
+	if (CL_handle >= 0 && CL_handle < MAX_VIDEO_HANDLES)
+	{
+		bits |= 1u << 3;
+		if (cinTable[CL_handle].holdAtEnd) bits |= 1u << 4;
+		bits |= (static_cast<unsigned int>(cinTable[CL_handle].status) & 0x0fu) << 8;
+	}
+	if (qbTextCrawlFixed) bits |= 1u << 5;
+	bits |= (static_cast<unsigned int>(stopCinematicCallCount) & 0x0fu) << 12;
+	return bits;
+}

@@ -26,6 +26,7 @@ public final class SkyCraft implements ModInitializer {
 		dev.skycraft.world.SkyDig.init();
 		dev.skycraft.world.MapBlockReset.init();
 		dev.skycraft.world.ForceJumpProtection.init();
+		dev.skycraft.world.MobDirectGround.init();
 		ServerLifecycleEvents.SERVER_STARTED.register(SkyCraft::configureServer);
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			giveStarterKit(handler.getPlayer());

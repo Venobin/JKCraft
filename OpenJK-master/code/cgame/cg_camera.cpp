@@ -30,6 +30,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 bool		in_camera = false;
 camera_t	client_camera={};
+static char jkcraftCameraOwnerMap[MAX_QPATH] = {};
 extern qboolean	player_locked;
 
 extern gentity_t *G_Find (gentity_t *from, int fieldofs, const char *match);
@@ -62,20 +63,19 @@ CGCam_Init
 void CGCam_Init( void )
 {
 	extern qboolean qbVidRestartOccured;
-	static char previousMap[MAX_QPATH] = {};
-	const bool mapChanged = !previousMap[0] || Q_stricmp(previousMap, cgs.mapname) != 0;
-	Q_strncpyz(previousMap, cgs.mapname, sizeof(previousMap));
-	// qbVidRestartOccured stays true after the first game-state reset, even when
-	// that reset loads a different level. Preserve a cinematic only for a real
-	// video restart on the same map; a new map must never inherit its camera.
-	if (!qbVidRestartOccured || mapChanged)
+	// A camera left by the previous map must not survive a maptransition. Record
+	// the map that actually enabled it, rather than guessing from a temporary
+	// engine cinematic flag: fades between two parts of the same cutscene briefly
+	// clear that flag. If the new map has already enabled its own camera before
+	// this init call, the owner matches and the legitimate camera is preserved.
+	if (in_camera && jkcraftCameraOwnerMap[0] &&
+		Q_stricmp(jkcraftCameraOwnerMap, cgs.mapname) != 0)
 	{
-		if (mapChanged && in_camera)
-		{
-			gi.Printf("JKCraft: cleared previous map's cinematic camera\n");
-		}
-		// A new map must not inherit the previous map's scripted-camera state.
 		in_camera = false;
+		jkcraftCameraOwnerMap[0] = '\0';
+	}
+	if (!qbVidRestartOccured)
+	{
 		memset( &client_camera, 0, sizeof ( camera_t ) );
 	}
 	gi.cvar_set("jkc_cinematic", in_camera ? "1" : "0");
@@ -105,6 +105,7 @@ void CGCam_Enable( void )
 	client_camera.FOV2	= CAMERA_DEFAULT_FOV;
 
 	in_camera = true;
+	Q_strncpyz(jkcraftCameraOwnerMap, cgs.mapname, sizeof(jkcraftCameraOwnerMap));
 	gi.cvar_set("jkc_cinematic", "1");
 
 	client_camera.next_roff_time = 0;
@@ -150,6 +151,7 @@ CGCam_Disable
 void CGCam_Disable( void )
 {
 	in_camera = false;
+	jkcraftCameraOwnerMap[0] = '\0';
 	gi.cvar_set("jkc_cinematic", "0");
 
 	client_camera.bar_alpha = 1.0f;

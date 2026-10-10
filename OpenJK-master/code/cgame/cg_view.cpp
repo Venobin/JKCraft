@@ -33,8 +33,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../game/g_vehicles.h"
 #include "../game/jkcraft_game.h"
 
-extern void CMD_CGCam_Disable( void );
-
 #define MASK_CAMERACLIP (MASK_SOLID)
 #define CAMERA_SIZE	4
 
@@ -1730,9 +1728,8 @@ static qboolean CG_CalcViewValues( void ) {
 	CGCam_UpdateShake( cg.refdef.vieworg, cg.refdefViewAngles );
 	// A console, turret or scripted view entity owns its own camera position. The
 	// Minecraft player eye must only replace the ordinary player-controlled view.
-	if ( !cg.zoomMode &&
-		((!in_camera && (cg.snap->ps.viewEntity <= 0 || cg.snap->ps.viewEntity >= ENTITYNUM_WORLD)) ||
-		JKCraft_ShouldReleaseStaleCamera()) )
+	if ( !cg.zoomMode && !in_camera &&
+		(cg.snap->ps.viewEntity <= 0 || cg.snap->ps.viewEntity >= ENTITYNUM_WORLD) )
 	{
 		JKCraft_OverrideFirstPersonCamera( cg.refdef.vieworg, cg.refdefViewAngles );
 	}
@@ -2001,6 +1998,7 @@ extern vec3_t	serverViewOrg;
 static qboolean cg_rangedFogging = qfalse; //so we know if we should go back to normal fog
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
+	JKCraft_PublishCGameStage(1);
 
 	cg.time = serverTime;
 
@@ -2010,6 +2008,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	// if we are only updating the screen as a loading
 	// pacifier, don't even try to read snapshots
 	if ( cg.infoScreenText[0] != 0 ) {
+		JKCraft_PublishCGameStage(2);
 		CG_DrawInformation();
 		return;
 	}
@@ -2029,9 +2028,11 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 
 	// set up cg.snap and possibly cg.nextSnap
 	CG_ProcessSnapshots();
+	JKCraft_PublishCGameStage(3);
 	// if we haven't received any snapshots yet, all
 	// we can draw is the information screen
 	if ( !cg.snap ) {
+		JKCraft_PublishCGameStage(4);
 		//CG_DrawInformation();
 		return;
 	}
@@ -2117,13 +2118,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		cg.renderingThirdPerson = qfalse;
 	}
 
-	if (in_camera && JKCraft_ShouldReleaseStaleCamera())
-	{
-		// The engine has returned gameplay input to Minecraft, but an old camera
-		// in the game DLL survived the cutscene/level transition.
-		CMD_CGCam_Disable();
-		gi.Printf("JKCraft: recovered stale cinematic camera after gameplay resumed\n");
-	}
+	JKCraft_PublishCameraDebug();
 	if ( in_camera )
 	{
 		// The camera takes over the view

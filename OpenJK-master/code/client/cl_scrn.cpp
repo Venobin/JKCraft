@@ -27,6 +27,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../server/exe_headers.h"
 
 #include "client.h"
+#include "../jkcraft/jkc_link.h"
 #include "client_ui.h"
 
 extern console_t con;
@@ -414,8 +415,26 @@ This will be called twice if rendering in stereo mode
 void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 
 	re.BeginFrame( stereoFrame );
+	std::uint32_t jkcraftScreenRoute = 0;
+
+	// Some Jedi Academy in-game ROQs intentionally hold their last frame and
+	// rely on a later script/input event to clear qbPlayingInGameCinematic.  In
+	// JKCraft that leaves cgame permanently unscheduled while Minecraft keeps
+	// rendering over the last native frame.  Once the decoder has actually
+	// reached IDLE/EOF, run the normal cleanup so gameplay rendering resumes.
+	// Repeating this on a following frame is intentional: the original text-
+	// crawl chaining code may need a second stop call to retire its final flag.
+	if (cls.state == CA_ACTIVE && Cvar_VariableIntegerValue("jkc_enabled") != 0 &&
+		CL_InGameCinematicFinished())
+	{
+		SCR_StopCinematic();
+	}
 
 	qboolean uiFullscreen = _UI_IsFullscreen();
+	if (uiFullscreen) jkcraftScreenRoute |= 1u << 16;
+	if (cls.state == CA_ACTIVE) jkcraftScreenRoute |= 1u << 17;
+	if (cls.cgameStarted) jkcraftScreenRoute |= 1u << 22;
+	if (Cvar_VariableIntegerValue("cl_paused") != 0) jkcraftScreenRoute |= 1u << 23;
 
 	// if the menu is going to cover the entire screen, we
 	// don't need to render anything under it
@@ -425,6 +444,7 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 			Com_Error( ERR_FATAL, "SCR_DrawScreenField: bad cls.state" );
 			break;
 		case CA_CINEMATIC:
+			jkcraftScreenRoute |= 1u << 18;
 			SCR_DrawCinematic();
 			break;
 		case CA_DISCONNECTED:
@@ -440,20 +460,29 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 		case CA_LOADING:
 		case CA_PRIMED:
 			// draw the game information screen and loading progress
+			jkcraftScreenRoute |= 1u << 19;
 			CL_CGameRendering( stereoFrame );
 			break;
 		case CA_ACTIVE:
 			if (CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy())
 			{
+				jkcraftScreenRoute |= 1u << 18;
 				SCR_DrawCinematic();
 			}
 			else
 			{
+				jkcraftScreenRoute |= 1u << 19;
 				CL_CGameRendering( stereoFrame );
 			}
 			break;
 		}
 	}
+	else
+	{
+		jkcraftScreenRoute |= 1u << 20;
+	}
+
+	jkcraft::PublishScreenDebug(jkcraftScreenRoute | CL_InGameCinematicDebugBits());
 
 	re.ProcessDissolve();
 
@@ -600,5 +629,3 @@ void  SCR_TempRawImage_CleanUp()
 	re.TempRawImage_CleanUp();
 }
 #endif
-
-

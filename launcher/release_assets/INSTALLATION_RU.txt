@@ -1,4 +1,4 @@
-JKCRAFT 0.1.2 ALPHA — УСТАНОВКА
+JKCRAFT 0.1.3 ALPHA — УСТАНОВКА
 ================================
 
 Это первая тестовая версия клиента для Windows. Мод не содержит оригинальные
@@ -9,7 +9,7 @@ JKCRAFT 0.1.2 ALPHA — УСТАНОВКА
 JKCraft основан на SkyCraft от chasmlol (https://github.com/chasmlol/SkyCraft)
 и использует изменённый OpenJK (https://github.com/JACoders/OpenJK).
 
-1. Распакуйте всю папку JKCraft-0.1.2-alpha. Не переносите отдельно один JAR.
+1. Распакуйте всю папку JKCraft-0.1.3-alpha. Не переносите отдельно один JAR.
 2. Скопируйте из своей чистой Jedi Academy файлы assets0.pk3, assets1.pk3,
    assets2.pk3 и assets3.pk3 в:
 

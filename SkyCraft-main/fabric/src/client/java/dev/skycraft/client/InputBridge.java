@@ -84,6 +84,7 @@ public final class InputBridge {
 			case Proto.IN_RELEASE_ALL -> releaseAll();
 			case Proto.IN_HURT -> hurt(minecraft, code, a / 100.0F, b, c);
 			case Proto.IN_PICKUP -> pickup(minecraft, code, a);
+			case Proto.IN_MOB_HURT -> mobHurt(minecraft, a, code, b / 100.0F, c);
 			case Proto.IN_OPEN_MENU -> {
 				if (minecraft.gui.screen() == null && minecraft.player != null) {
 					releaseAll();
@@ -93,6 +94,14 @@ public final class InputBridge {
 			default -> {
 			}
 		}
+	}
+
+	private static void mobHurt(Minecraft minecraft, int entityId, int kind,
+		float jediDamage, int attackerFormId) {
+		var server = minecraft.getSingleplayerServer();
+		if (server == null || entityId <= 0 || jediDamage <= 0.0F) return;
+		server.execute(() -> SkyCombat.hurtMinecraftMob(server, entityId, kind,
+			jediDamage, attackerFormId));
 	}
 
 	private static void pickup(Minecraft minecraft, int kind, int jediPoints) {

@@ -38,6 +38,8 @@ public class SkyrimActorEntity extends LivingEntity {
 	private double pushX, pushZ;
 	private float pushStrength;
 	private boolean hitThisTick;
+	private boolean hostile;
+	private long nextMobAttackTick;
 
 	public SkyrimActorEntity(EntityType<? extends SkyrimActorEntity> type, Level level) {
 		super(type, level);
@@ -53,6 +55,22 @@ public class SkyrimActorEntity extends LivingEntity {
 
 	public void setFormId(int formId) {
 		this.entityData.set(FORM_ID, formId);
+	}
+
+	public boolean hostile() {
+		return this.hostile;
+	}
+
+	public void setHostile(boolean hostile) {
+		this.hostile = hostile;
+	}
+
+	public boolean mobAttackReady(long gameTime) {
+		return gameTime >= this.nextMobAttackTick;
+	}
+
+	public void delayMobAttack(long gameTime, int ticks) {
+		this.nextMobAttackTick = gameTime + ticks;
 	}
 
 	@Override
@@ -98,6 +116,10 @@ public class SkyrimActorEntity extends LivingEntity {
 		this.pendingWeapon = weaponClass(source);
 		if (source.is(net.minecraft.tags.DamageTypeTags.IS_FIRE)) {
 			this.pendingFlags |= Proto.HIT_FIRE;
+		}
+		// Do not make OpenJK blame the player when a Minecraft mob struck this proxy.
+		if (source.getEntity() instanceof net.minecraft.world.entity.Mob) {
+			this.pendingFlags |= Proto.HIT_MOB;
 		}
 		this.hitThisTick = true;
 		this.getCombatTracker().recordDamage(source, dmg);

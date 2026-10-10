@@ -48,7 +48,10 @@ public final class SkyCollision {
 			out.accept(key);
 		}
 	}
-	private static volatile java.util.function.Predicate<net.minecraft.world.entity.Entity> smoothCollider = e -> false;
+	// Minecraft mobs also need the exact JA triangle floor. The 8x8x8 voxel fallback can leave
+	// narrow gaps on sloped/ornamental BSP surfaces and small mobs eventually fall through them.
+	private static volatile java.util.function.Predicate<net.minecraft.world.entity.Entity> smoothCollider =
+		e -> e instanceof net.minecraft.world.entity.Mob;
 	private static final Set<Long> KNOWN_REGIONS = ConcurrentHashMap.newKeySet();
 	private static volatile int epoch = -1;
 	private static Thread consumer;
@@ -64,7 +67,8 @@ public final class SkyCollision {
 
 	/** Entities (the local player) that collide with Skyrim's exact triangles instead of its voxels. */
 	public static void setSmoothCollider(java.util.function.Predicate<net.minecraft.world.entity.Entity> predicate) {
-		smoothCollider = predicate;
+		// Keep generic mobs on the exact collider even when the client adds LocalPlayer.
+		smoothCollider = e -> e instanceof net.minecraft.world.entity.Mob || predicate.test(e);
 	}
 
 	public static boolean usesSmoothCollider(net.minecraft.world.entity.@Nullable Entity entity) {

@@ -204,6 +204,10 @@ void SV_SpawnServer( const char *server, ForceReload_e eForceReload, qboolean bA
 
 	Cvar_SetValue( "cl_paused", 0 );
 	Cvar_Set( "timescale", "1" );//jic we were skipping
+	// A scripted maptransition may replace the server without going through the
+	// normal client disconnect path. Never carry cinematic fast-forward state
+	// into the newly spawned map: it suppresses client rendering and input there.
+	Cvar_Set( "skippingCinematic", "0" );
 
 	// shut down the existing game if it is running
 	SV_ShutdownGameProgs(qtrue);

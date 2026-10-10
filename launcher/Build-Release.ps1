@@ -3,7 +3,7 @@ param([string]$Destination)
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
 $releaseRoot = Join-Path $workspace 'releases'
-if (-not $Destination) { $Destination = Join-Path $releaseRoot 'JKCraft-0.1.2-alpha' }
+if (-not $Destination) { $Destination = Join-Path $releaseRoot 'JKCraft-0.1.3-alpha' }
 $Destination = [IO.Path]::GetFullPath($Destination)
 $releaseRoot = [IO.Path]::GetFullPath($releaseRoot)
 if (-not $Destination.StartsWith($releaseRoot + [IO.Path]::DirectorySeparatorChar,
@@ -28,7 +28,7 @@ foreach ($required in @(
     (Join-Path $openJkBuild 'jagamex86.dll'),
     (Join-Path $openJkBuild 'rdsp-vanilla_x86.dll'),
     (Join-Path $oldClient 'mods\fabric-api-0.161.0+26.3.jar'),
-    (Join-Path $core 'build\libs\jkcraft-0.1.2.jar'),
+    (Join-Path $core 'build\libs\jkcraft-0.1.3.jar'),
     (Join-Path $java 'bin\java.exe')
 )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
@@ -56,8 +56,8 @@ New-Item -ItemType Directory -Path (Join-Path $Destination 'mods'),
     (Join-Path $Destination 'GameResources\JediAcademy\GameData\base'),
     (Join-Path $Destination 'GameResources\Minecraft\GameData'),
     (Join-Path $Destination 'UserData') -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $core 'build\libs\jkcraft-0.1.2.jar') `
-    -Destination (Join-Path $Destination 'mods\jkcraft-0.1.2.jar')
+Copy-Item -LiteralPath (Join-Path $core 'build\libs\jkcraft-0.1.3.jar') `
+    -Destination (Join-Path $Destination 'mods\jkcraft-0.1.3.jar')
 Copy-Item -LiteralPath (Join-Path $oldClient 'mods\fabric-api-0.161.0+26.3.jar') `
     -Destination (Join-Path $Destination 'mods\fabric-api-0.161.0+26.3.jar')
 Copy-Item -LiteralPath $java -Destination (Join-Path $Destination 'Runtime\Java25') -Recurse

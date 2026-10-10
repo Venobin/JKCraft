@@ -5621,6 +5621,12 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, const
 		attacker = &g_entities[ENTITYNUM_WORLD];
 	}
 
+	// Hostile Minecraft mobs are represented by invisible, shootable targets so
+	// OpenJK's real NPC AI, weapon animation and projectiles stay authoritative.
+	if (JKCraft_ForwardMinecraftMobDamage(targ, attacker, damage, mod)) {
+		return;
+	}
+
 	// Minecraft owns the puppet player's health, armor, shield and death state.
 	// Forward the already-classified JA hit and avoid damaging a second health pool.
 	if (JKCraft_ForwardPlayerDamage(targ, attacker, damage, mod, dflags)) {

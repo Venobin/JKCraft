@@ -16,12 +16,16 @@ namespace jkcraft
 	namespace protocol
 	{
 	static constexpr std::uint32_t kMagic = 0x43594B53; // "SKYC"
-	static constexpr std::uint32_t kVersion = 14;
+	static constexpr std::uint32_t kVersion = 16;
 	static constexpr wchar_t kMappingName[] = L"Local\\JKCraft_v1";
 	static constexpr std::uint64_t kStateOffset = 0x100;
 	static constexpr std::uint64_t kForceStateOffset = 0x180;
 	static constexpr std::uint64_t kMinecraftStateOffset = 0x200;
 	static constexpr std::uint64_t kHostCursorOffset = 0x40;
+	static constexpr std::uint64_t kCameraHandoffOffset = 0x60;
+	// Internal diagnostic snapshot written by the game DLL. It lives in the
+	// unused header gap and is intentionally not part of the client handshake.
+	static constexpr std::uint64_t kDebugStateOffset = 0x80;
 	static constexpr std::uint64_t kOverlayControlOffset = 0x300;
 	static constexpr std::uint64_t kOverlaySlotHeaderOffset = 0x340;
 	static constexpr std::uint64_t kWaterGridOffset = 0x400;
@@ -32,6 +36,8 @@ namespace jkcraft
 	static constexpr std::uint64_t kDirectMoveOffset = 0x900;
 	static constexpr std::uint64_t kDirectRayOffset = 0x980;
 	static constexpr std::uint64_t kMoverCarryOffset = 0xA00;
+	static constexpr std::uint64_t kMobGroundOffset = 0xA40;
+	static constexpr std::uint32_t kMaxMobGround = 32;
 	static constexpr std::uint64_t kInputRingOffset = 0x1000;
 	static constexpr std::uint64_t kInputRingHeadOffset = 0x00;
 	static constexpr std::uint64_t kInputRingTailOffset = 0x40;
@@ -90,6 +96,34 @@ namespace jkcraft
 	};
 
 	static_assert(sizeof(HostCursor) == 0x10);
+
+	struct CameraHandoff
+	{
+		std::uint32_t releaseSeq;
+		std::uint32_t cinematicActive;
+		std::uint32_t worldId;
+		std::uint32_t reserved;
+	};
+
+	static_assert(sizeof(CameraHandoff) == 0x10);
+	static_assert(kCameraHandoffOffset + sizeof(CameraHandoff) <= kDebugStateOffset);
+
+	struct DebugState
+	{
+		std::uint32_t seq;
+		std::uint32_t flags;
+		std::int32_t snapshotViewEntity;
+		std::int32_t serverViewEntity;
+		std::int32_t snapshotClientNum;
+		std::int32_t localEntityType;
+		float viewOrigin[3];
+		float viewAngles[3];
+		std::uint32_t cameraTransitions;
+		std::uint32_t reserved;
+	};
+
+	static_assert(sizeof(DebugState) == 0x38);
+	static_assert(kDebugStateOffset + sizeof(DebugState) <= kStateOffset);
 
 	enum StateFlags : std::uint32_t
 	{
@@ -187,10 +221,34 @@ namespace jkcraft
 		std::uint32_t reserved;
 	};
 	static_assert(sizeof(MoverCarry) == 0x20);
+	struct MobGroundRecord
+	{
+		std::uint32_t entityId;
+		float x, y, z;
+		float halfWidth, height;
+		float probeDown, probeUp;
+		float groundY;
+		std::uint32_t resultFlags;
+	};
+	struct MobGroundBatch
+	{
+		std::uint32_t requestSeq, responseSeq, worldId, count;
+		std::uint8_t pad[0x40 - 16];
+		MobGroundRecord records[kMaxMobGround];
+	};
+	static_assert(sizeof(MobGroundRecord) == 40);
+	static_assert(sizeof(MobGroundBatch) == 0x540);
+	// Low bits are OpenJK's trace response. High bits describe the Minecraft
+	// entity that requested the trace and must survive the engine round trip.
+	static constexpr std::uint32_t kMobGroundHit = 1u << 0;
+	static constexpr std::uint32_t kMobGroundStartSolid = 1u << 1;
+	static constexpr std::uint32_t kMobRequestHostile = 1u << 16;
+	static constexpr std::uint32_t kMobRequestMask = 0xffff0000u;
 	static_assert(kWaterGridOffset + sizeof(WaterGrid) <= kDirectMoveOffset);
 	static_assert(kDirectMoveOffset + sizeof(DirectMove) <= kDirectRayOffset);
 	static_assert(kDirectRayOffset + sizeof(DirectRay) <= kMoverCarryOffset);
-	static_assert(kMoverCarryOffset + sizeof(MoverCarry) <= kInputRingOffset);
+	static_assert(kMoverCarryOffset + sizeof(MoverCarry) <= kMobGroundOffset);
+	static_assert(kMobGroundOffset + sizeof(MobGroundBatch) <= kInputRingOffset);
 
 	enum MinecraftStateFlags : std::uint32_t
 	{
@@ -309,6 +367,7 @@ namespace jkcraft
 		kHitProjectile = 1u << 1,
 		kHitSweep = 1u << 2,
 		kHitFire = 1u << 3,
+		kHitMob = 1u << 4,
 	};
 
 	enum WeaponClass : std::uint32_t
@@ -463,6 +522,7 @@ namespace jkcraft
 		kInputHurt = 7,
 		kInputOpenMenu = 8,
 		kInputPickup = 9,
+		kInputMobHurt = 10,
 	};
 
 	struct InputEvent

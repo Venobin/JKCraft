@@ -57,6 +57,7 @@ namespace jkcraft
 		bool lastPlayerInLava = false;
 		std::uint32_t lastMinecraftPid = 0;
 		bool lastCinematic = false;
+		std::uint32_t cameraReleaseSeq = 0;
 		bool lastDirectCollision = true;
 		bool preloadActive = false;
 		bool preloadAwaitingDrain = false;
@@ -979,6 +980,49 @@ namespace jkcraft
 			}
 
 			auto* ray = reinterpret_cast<protocol::DirectRay*>(MappingBase() + protocol::kDirectRayOffset);
+			auto* mobGround = reinterpret_cast<protocol::MobGroundBatch*>(MappingBase() + protocol::kMobGroundOffset);
+			const std::uint32_t mobRequest = Read32(&mobGround->requestSeq);
+			if (mobRequest && mobRequest != Read32(&mobGround->responseSeq))
+			{
+				MemoryBarrier();
+				const std::uint32_t count = std::min(mobGround->count, protocol::kMaxMobGround);
+				for (std::uint32_t i = 0; i < count; ++i)
+				{
+					auto& record = mobGround->records[i];
+					// Keep the Minecraft-side classification bits while replacing only
+					// the low response bits with this frame's native trace result.
+					record.resultFlags &= protocol::kMobRequestMask;
+					record.groundY = record.y;
+					if (mobGround->worldId != worldId) continue;
+					const float probeUp = std::max(0.0f, std::min(record.probeUp, 2.0f));
+					vec3_t start{
+						record.x * static_cast<float>(scale),
+						-record.z * static_cast<float>(scale),
+						(record.y + probeUp) * static_cast<float>(scale)};
+					vec3_t end;
+					VectorCopy(start, end);
+					end[2] -= std::max(0.25f, std::min(record.probeDown, 8.0f)) * static_cast<float>(scale);
+					const float half = std::max(0.05f, std::min(record.halfWidth, 4.0f)) * static_cast<float>(scale);
+					const float height = std::max(0.1f, std::min(record.height, 8.0f)) * static_cast<float>(scale);
+					vec3_t mins{-half, -half, 0.0f};
+					vec3_t maxs{half, half, height};
+					trace_t trace{};
+					DirectTrace(trace, start, end, mins, maxs,
+						CONTENTS_SOLID | CONTENTS_PLAYERCLIP | CONTENTS_TERRAIN);
+					if (trace.startsolid || trace.allsolid)
+					{
+						record.resultFlags |= protocol::kMobGroundStartSolid;
+					}
+					if (!trace.allsolid && trace.fraction < 1.0f && trace.plane.normal[2] >= 0.45f)
+					{
+						record.groundY = trace.endpos[2] / static_cast<float>(scale);
+						record.resultFlags |= protocol::kMobGroundHit;
+					}
+				}
+				MemoryBarrier();
+				InterlockedExchange(reinterpret_cast<volatile LONG*>(&mobGround->responseSeq), static_cast<LONG>(mobRequest));
+			}
+
 			const std::uint32_t rayRequest = Read32(&ray->requestSeq);
 			if (rayRequest && rayRequest != Read32(&ray->responseSeq))
 			{
@@ -1297,7 +1341,8 @@ namespace jkcraft
 			const bool remoteView = active && cl.frame.ps.viewEntity > 0 &&
 				cl.frame.ps.viewEntity < ENTITYNUM_WORLD;
 			const bool cinematic = active &&
-				((cinematicState && cinematicState->integer != 0) || remoteView);
+				((cinematicState && cinematicState->integer != 0) || remoteView ||
+					CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy());
 			const std::uint32_t worldId = active ? HashMapName(cl.mapname) : 0u;
 			if (worldId != 0 && worldId != lastWorldId)
 			{
@@ -1338,8 +1383,18 @@ namespace jkcraft
 				// A scripted camera may also have moved the native JA player. Make Minecraft
 				// rejoin that authoritative position when control is returned to the player.
 				++teleportSeq;
+				Key_ClearStates();
+				Com_DPrintf("JKCraft: cinematic ended; returning input to Minecraft\n");
 			}
 			lastCinematic = cinematic;
+			auto* cameraHandoff = reinterpret_cast<protocol::CameraHandoff*>(
+				reinterpret_cast<std::uint8_t*>(header) + protocol::kCameraHandoffOffset);
+			InterlockedExchange(reinterpret_cast<volatile LONG*>(&cameraHandoff->releaseSeq),
+				static_cast<LONG>(cameraReleaseSeq));
+			InterlockedExchange(reinterpret_cast<volatile LONG*>(&cameraHandoff->cinematicActive),
+				cinematic ? 1 : 0);
+			InterlockedExchange(reinterpret_cast<volatile LONG*>(&cameraHandoff->worldId),
+				static_cast<LONG>(worldId));
 
 			const double scale = unitsPerBlock && unitsPerBlock->value > 0.001f
 				? static_cast<double>(unitsPerBlock->value) : 32.0;
@@ -1476,6 +1531,7 @@ namespace jkcraft
 			overlay->framesPublished = 0;
 			std::memset(MappingBase() + protocol::kDirectMoveOffset, 0, sizeof(protocol::DirectMove));
 			std::memset(MappingBase() + protocol::kDirectRayOffset, 0, sizeof(protocol::DirectRay));
+			std::memset(MappingBase() + protocol::kMobGroundOffset, 0, sizeof(protocol::MobGroundBatch));
 			MemoryBarrier();
 			InterlockedExchange(reinterpret_cast<volatile LONG*>(&header->magic), static_cast<LONG>(protocol::kMagic));
 
@@ -1546,14 +1602,41 @@ namespace jkcraft
 #endif
 	}
 
-	void Frame()
+void Frame()
+{
+	// Keep the legacy OpenJK command buttons from remaining latched when
+	// keyboard ownership moves to Minecraft (for example after a skipped
+	// cinematic).  The matching key-up event is routed to Minecraft, so
+	// OpenJK would otherwise keep running with the last held direction.
+	static bool minecraftOwnedInputLastFrame = false;
+	const bool minecraftOwnsInputNow = MinecraftOwnsInput();
+	if (minecraftOwnsInputNow && !minecraftOwnedInputLastFrame)
 	{
+		Key_ClearStates();
+	}
+	minecraftOwnedInputLastFrame = minecraftOwnsInputNow;
 #if defined(_WIN32)
 		if (enabled && enabled->integer && header)
 		{
 			Write64(&header->hostHeartbeatMs, GetTickCount64());
 			WriteHostState();
 		}
+#endif
+	}
+
+	void PublishScreenDebug(std::uint32_t bits)
+	{
+#if defined(_WIN32)
+		if (!header)
+		{
+			return;
+		}
+		auto* handoff = reinterpret_cast<protocol::CameraHandoff*>(
+			reinterpret_cast<std::uint8_t*>(header) + protocol::kCameraHandoffOffset);
+		InterlockedExchange(reinterpret_cast<volatile LONG*>(&handoff->reserved),
+			static_cast<LONG>(bits));
+#else
+		(void)bits;
 #endif
 	}
 
@@ -1576,6 +1659,7 @@ namespace jkcraft
 			(cl.frame.valid && cl.frame.ps.viewEntity > 0 &&
 				cl.frame.ps.viewEntity < ENTITYNUM_WORLD) ||
 			(cinematicState && cinematicState->integer != 0) ||
+			CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy() ||
 			(Key_GetCatcher() & (KEYCATCH_UI | KEYCATCH_CONSOLE)) != 0 ||
 			!MinecraftAlive(GetTickCount64()))
 		{

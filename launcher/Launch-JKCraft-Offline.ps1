@@ -41,7 +41,7 @@ foreach ($required in @(
     $openJK,
     (Join-Path $openJKRoot 'OpenJK\jagamex86.dll'),
     (Join-Path $openJKRoot 'rdsp-vanilla_x86.dll'),
-    (Join-Path $root 'mods\jkcraft-0.1.2.jar')
+    (Join-Path $root 'mods\jkcraft-0.1.3.jar')
 )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "JKCraft: required file is missing: $required"

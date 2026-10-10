@@ -8,7 +8,7 @@ public final class Proto {
 	}
 
 	public static final int MAGIC = 0x43594B53;
-	public static final int VERSION = 14;
+	public static final int VERSION = 16;
 	// Keep the legacy property as a fallback while the inherited SkyCraft packages are renamed.
 	public static final String MAPPING_NAME = System.getProperty("jkcraft.link",
 		System.getProperty("skycraft.link", "Local\\JKCraft_v1"));
@@ -22,6 +22,12 @@ public final class Proto {
 	public static final long OFF_DIRECT_MOVE = 0x900;
 	public static final long OFF_DIRECT_RAY = 0x980;
 	public static final long OFF_MOVER_CARRY = 0xA00;
+	public static final long OFF_MOB_GROUND = 0xA40;
+	public static final int MAX_MOB_GROUND = 32;
+	public static final long MG_REQUEST = 0x00, MG_RESPONSE = 0x04, MG_WORLD = 0x08, MG_COUNT = 0x0C, MG_RECORDS = 0x40;
+	public static final long MOB_GROUND_BYTES = 40;
+	public static final int MOB_GROUND_HIT = 1, MOB_GROUND_START_SOLID = 2;
+	public static final int MOB_REQUEST_HOSTILE = 1 << 16;
 	public static final int WATER_GRID_SIZE = 16;
 	public static final float LAVA_SURFACE_OFFSET = 8192.0F;
 	public static final long WG_SEQ = 0x0, WG_ORIGIN_X = 0x4, WG_ORIGIN_Z = 0x8, WG_WORLD_ID = 0xC, WG_SURFACE = 0x10;
@@ -49,6 +55,7 @@ public final class Proto {
 	public static final int IN_HURT = 7;
 	public static final int IN_OPEN_MENU = 8;
 	public static final int IN_PICKUP = 9;
+	public static final int IN_MOB_HURT = 10;
 	public static final int PICKUP_HEALTH = 1;
 	public static final int PICKUP_SHIELD = 2;
 	public static final int HURT_MELEE = 0;
@@ -101,6 +108,7 @@ public final class Proto {
 	public static final int HIT_PROJECTILE = 1 << 1;
 	public static final int HIT_SWEEP = 1 << 2;
 	public static final int HIT_FIRE = 1 << 3;
+	public static final int HIT_MOB = 1 << 4;
 	public static final int WEAPON_UNARMED = 0;
 	public static final int WEAPON_BLADE = 1;
 	public static final int WEAPON_AXE = 2;

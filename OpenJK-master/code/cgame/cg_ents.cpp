@@ -31,6 +31,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "FxScheduler.h"
 #include "../game/wp_saber.h"
 #include "../game/g_vehicles.h"
+#include "../game/jkcraft_game.h"
 
 extern void CG_AddSaberBlade( centity_t *cent, centity_t *scent, refEntity_t *saber, int renderfx, int modelIndex, vec3_t origin, vec3_t angles);
 extern void CG_CheckSaberInWater( centity_t *cent, centity_t *scent, int saberNum, int modelIndex, vec3_t origin, vec3_t angles );
@@ -2347,6 +2348,14 @@ CG_AddCEntity
 */
 static void CG_AddCEntity( centity_t *cent )
 {
+	// Drop the native local-player entity before any of the generic entity paths
+	// can render it. After a skipped cinematic its snapshot number/type may be
+	// stale for a frame, so the narrower check inside CG_Player is not sufficient.
+	if (cent && cent->gent == &g_entities[0] && JKCraft_HideNativePlayer())
+	{
+		return;
+	}
+
 	// event-only entities will have been dealt with already
 	if ( cent->currentState.eType >= ET_EVENTS ) {
 		return;

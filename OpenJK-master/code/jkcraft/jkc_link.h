@@ -12,6 +12,9 @@ namespace jkcraft
 {
 	void Init();
 	void Frame();
+	// Publishes engine screen-routing diagnostics into the shared header. This
+	// remains available even when cgame itself is no longer being scheduled.
+	void PublishScreenDebug(std::uint32_t bits);
 	void Shutdown();
 	bool MinecraftScreenOpen();
 	bool MinecraftOwnsInput();

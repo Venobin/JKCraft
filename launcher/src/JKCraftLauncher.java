@@ -47,6 +47,7 @@ public final class JKCraftLauncher {
 
     private final Path workspace;
     private final Path packageRoot;
+    private final boolean releasePackage;
     private final Path settingsFile;
     private final Properties settings = new Properties();
     private JTextField nicknameField;
@@ -74,6 +75,7 @@ public final class JKCraftLauncher {
     private JKCraftLauncher(Path workspace, Path packageRoot) {
         this.workspace = workspace;
         this.packageRoot = packageRoot;
+        this.releasePackage = Files.isRegularFile(packageRoot.resolve("ClientCore/gradlew.bat"));
         this.settingsFile = packageRoot.resolve("UserData/offline-launcher.properties");
         if (Files.isRegularFile(settingsFile)) {
             try (InputStream in = Files.newInputStream(settingsFile)) {
@@ -89,9 +91,15 @@ public final class JKCraftLauncher {
         Path file = Paths.get(JKCraftLauncher.class.getProtectionDomain()
             .getCodeSource().getLocation().toURI()).toAbsolutePath();
         Path parent = Files.isDirectory(file) ? file : file.getParent();
+        if (Files.isRegularFile(parent.resolve("Start-JKCraft-Playtest.ps1"))) {
+            return new Path[] { parent, parent.resolve("dist/JKCraft-0.1.2") };
+        }
         if (Files.isRegularFile(parent.resolve("Launch-JKCraft-Offline.ps1")) &&
             Files.isRegularFile(parent.resolve("ClientCore/gradlew.bat"))) {
             return new Path[] { parent, parent };
+        }
+        if (Files.isRegularFile(parent.resolve("../../Start-JKCraft-Playtest.ps1"))) {
+            return new Path[] { parent.resolve("../..").normalize(), parent };
         }
         throw new IllegalStateException("JKCraft runtime not found next to the launcher jar.");
     }
@@ -461,10 +469,13 @@ public final class JKCraftLauncher {
             throw new IllegalArgumentException(tr("Не найден Jedi Academy GameData/base/assets0.pk3.",
                 "Jedi Academy GameData/base/assets0.pk3 was not found."));
         }
-        boolean runtimeReady = Files.isRegularFile(packageRoot.resolve("ClientCore/gradlew.bat")) &&
-            Files.isRegularFile(packageRoot.resolve("Runtime/Java25/bin/java.exe")) &&
-            Files.isRegularFile(packageRoot.resolve("OpenJK/openjk_sp.x86.exe")) &&
-            Files.isRegularFile(packageRoot.resolve("mods/jkcraft-0.1.2.jar"));
+        boolean runtimeReady = releasePackage
+            ? Files.isRegularFile(packageRoot.resolve("ClientCore/gradlew.bat")) &&
+                Files.isRegularFile(packageRoot.resolve("Runtime/Java25/bin/java.exe")) &&
+                Files.isRegularFile(packageRoot.resolve("OpenJK/openjk_sp.x86.exe")) &&
+                Files.isRegularFile(packageRoot.resolve("mods/jkcraft-0.1.3.jar"))
+            : Files.isRegularFile(workspace.resolve("SkyCraft-main/fabric/gradlew.bat")) &&
+                Files.isDirectory(workspace.resolve(".gradle-cache"));
         if (!runtimeReady) {
             throw new IllegalArgumentException(tr("Локальный Minecraft-клиент не подготовлен.",
                 "The local Minecraft client is not prepared."));
@@ -495,7 +506,8 @@ public final class JKCraftLauncher {
         args.add("-ExecutionPolicy");
         args.add("Bypass");
         args.add("-File");
-        args.add(packageRoot.resolve("Launch-JKCraft-Offline.ps1").toString());
+        args.add(releasePackage ? packageRoot.resolve("Launch-JKCraft-Offline.ps1").toString()
+            : workspace.resolve("Start-JKCraft-Playtest.ps1").toString());
         args.add("-Nickname");
         args.add(nickname);
         String savedResolution = settings.getProperty("resolution", "1280x720");
@@ -509,6 +521,12 @@ public final class JKCraftLauncher {
         args.add(settings.getProperty("fullscreen", "0"));
         args.add("-ConsoleLogs");
         args.add(settings.getProperty("consoleLogs", "0"));
+        if (!releasePackage) {
+            args.add("-JediAcademyGameData");
+            args.add(academy);
+            args.add("-MinecraftDataRoot");
+            args.add(gameDir.toString());
+        }
         if (checkOnly) args.add("-CheckOnly");
         return args;
     }

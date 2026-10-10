@@ -29,6 +29,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "g_vehicles.h"
 #include "b_local.h"
 #include "g_navigator.h"
+#include "jkcraft_game.h"
 
 #ifdef _DEBUG
 	#include <float.h>
@@ -5553,6 +5554,20 @@ void ClientThink( int clientNum, usercmd_t *ucmd ) {
 
 	ent = g_entities + clientNum;
 
+	// Minecraft owns locomotion while the JKCraft puppet is active. A command
+	// generated just before a cinematic hand-off can otherwise retain a movement
+	// axis indefinitely, making the hidden native Jaden run independently of the
+	// Minecraft player. Preserve buttons (Use/Force/objectives/quicksaves) and
+	// view angles, but never let native pmove consume locomotion axes in this mode.
+	if ( clientNum == 0 && ent->client && JKCraft_PlayerPuppeted() )
+	{
+		ucmd->forwardmove = 0;
+		ucmd->rightmove = 0;
+		ucmd->upmove = 0;
+		VectorClear( ent->client->ps.velocity );
+		VectorClear( ent->client->ps.moveDir );
+	}
+
 	if ( ent->s.number<MAX_CLIENTS )
 	{
 		if ( ent->client->ps.viewEntity > 0 && ent->client->ps.viewEntity < ENTITYNUM_WORLD )
@@ -5741,5 +5756,3 @@ void ClientEndFrame( gentity_t *ent )
 
 //	G_SetClientSound (ent);
 }
-
-

@@ -6841,7 +6841,9 @@ void CG_Player( centity_t *cent ) {
 
 	// The linked Minecraft avatar is the only player representation. Jedi Academy normally
 	// draws Kyle even in its special "first-person saber" path, which creates two bodies.
-	if (cent->currentState.number == 0 && JKCraft_HideNativePlayer())
+	if ((cent->currentState.number == 0 || cent->gent == &g_entities[0] ||
+		(cg.snap && cent == &cg_entities[cg.snap->ps.clientNum])) &&
+		JKCraft_HideNativePlayer())
 	{
 		return;
 	}

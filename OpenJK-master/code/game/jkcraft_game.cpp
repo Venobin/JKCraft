@@ -2,6 +2,7 @@
 #include "b_local.h"
 #include "jkcraft_game.h"
 #include "../jkcraft/jkc_protocol.h"
+#include "../cgame/cg_local.h"
 
 #include <algorithm>
 #include <cmath>
@@ -14,6 +15,7 @@ extern void WP_ForcePowerDrain(gentity_t* self, forcePowers_t forcePower, int ov
 extern void WP_ForcePowerStop(gentity_t* self, forcePowers_t forcePower);
 extern void Use_BinaryMover(gentity_t* ent, gentity_t* other, gentity_t* activator);
 extern bool in_camera;
+extern qboolean player_locked;
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -46,6 +48,7 @@ namespace
 	bool loggedForceState = false;
 	bool loggedPropHit = false;
 	bool loggedNpcSight = false;
+	bool loggedMinecraftMobHit = false;
 	std::uint32_t loggedWeaponReactions = 0;
 	int combatTestLevel = -1;
 	int combatTestNpc = ENTITYNUM_NONE;
@@ -59,6 +62,12 @@ namespace
 	int cellLevelTime = 0;
 	bool cellsInitialized = false;
 	int npcLavaNext[MAX_GENTITIES]{};
+	int mobTargetEntityNumbers[jkcraft::protocol::kMaxMobGround]{};
+	std::uint32_t mobTargetMinecraftIds[jkcraft::protocol::kMaxMobGround]{};
+	std::uint32_t mobTargetWorldId = 0;
+	std::uint32_t mobTargetResponse = 0;
+	int mobTargetLevelTime = 0;
+	bool mobTargetsInitialized = false;
 
 	void ClearMinecraftCells(bool freeEntities)
 	{
@@ -76,6 +85,189 @@ namespace
 			cellEntityNumbers[i] = 0;
 		}
 		cellSequence = 0;
+	}
+
+	void DetachAndFreeMobTarget(gentity_t* target)
+	{
+		if (!target) return;
+		for (int n = 1; n < globals.num_entities; ++n)
+		{
+			gentity_t* actor = &g_entities[n];
+			if (!actor->inuse || !actor->NPC) continue;
+			if (actor->enemy == target) actor->enemy = nullptr;
+			if (actor->NPC->goalEntity == target) actor->NPC->goalEntity = nullptr;
+		}
+		G_FreeEntity(target);
+	}
+
+	void ClearMinecraftMobTargets(bool freeEntities)
+	{
+		for (std::uint32_t i = 0; i < jkcraft::protocol::kMaxMobGround; ++i)
+		{
+			const int number = mobTargetEntityNumbers[i];
+			if (freeEntities && number > 0 && number < globals.num_entities)
+			{
+				gentity_t* entity = &g_entities[number];
+				if (entity->inuse && entity->classname &&
+					!std::strcmp(entity->classname, "jkcraft_minecraft_mob"))
+				{
+					DetachAndFreeMobTarget(entity);
+				}
+			}
+			mobTargetEntityNumbers[i] = 0;
+			mobTargetMinecraftIds[i] = 0;
+		}
+		mobTargetResponse = 0;
+	}
+
+	void SyncMinecraftMobTargets(float scale, std::uint32_t worldId)
+	{
+		if (mobTargetsInitialized && level.time < mobTargetLevelTime)
+		{
+			// The level transition replaced g_entities, so the old numbers no longer
+			// name objects owned by us and must not be freed in the new map.
+			ClearMinecraftMobTargets(false);
+		}
+		mobTargetLevelTime = level.time;
+		mobTargetsInitialized = true;
+		if (!OpenLink() || !header || header->version != jkcraft::protocol::kVersion)
+		{
+			ClearMinecraftMobTargets(true);
+			return;
+		}
+
+		const auto* source = reinterpret_cast<const jkcraft::protocol::MobGroundBatch*>(
+			reinterpret_cast<const std::uint8_t*>(header) + jkcraft::protocol::kMobGroundOffset);
+		jkcraft::protocol::MobGroundBatch snapshot{};
+		bool valid = false;
+		for (int attempt = 0; attempt < 5; ++attempt)
+		{
+			const std::uint32_t requestBefore = Read32(&source->requestSeq);
+			const std::uint32_t responseBefore = Read32(&source->responseSeq);
+			if (!requestBefore || requestBefore != responseBefore) continue;
+			std::memcpy(&snapshot, source, sizeof(snapshot));
+			MemoryBarrier();
+			if (requestBefore == Read32(&source->requestSeq) &&
+				responseBefore == Read32(&source->responseSeq))
+			{
+				valid = true;
+				break;
+			}
+		}
+		if (!valid || snapshot.worldId != worldId || snapshot.count > jkcraft::protocol::kMaxMobGround)
+		{
+			ClearMinecraftMobTargets(true);
+			return;
+		}
+		if (mobTargetWorldId == worldId && mobTargetResponse == snapshot.responseSeq) return;
+		mobTargetWorldId = worldId;
+		mobTargetResponse = snapshot.responseSeq;
+
+		for (std::uint32_t i = 0; i < jkcraft::protocol::kMaxMobGround; ++i)
+		{
+			const bool wanted = i < snapshot.count &&
+				(snapshot.records[i].resultFlags & jkcraft::protocol::kMobRequestHostile) != 0;
+			const std::uint32_t minecraftId = wanted ? snapshot.records[i].entityId : 0;
+			const int number = mobTargetEntityNumbers[i];
+			gentity_t* entity = number > 0 && number < globals.num_entities ? &g_entities[number] : nullptr;
+			if (entity && (!entity->inuse || !entity->classname ||
+				std::strcmp(entity->classname, "jkcraft_minecraft_mob"))) entity = nullptr;
+			if (entity && (!wanted || mobTargetMinecraftIds[i] != minecraftId))
+			{
+				DetachAndFreeMobTarget(entity);
+				entity = nullptr;
+			}
+			if (!wanted)
+			{
+				mobTargetEntityNumbers[i] = 0;
+				mobTargetMinecraftIds[i] = 0;
+				continue;
+			}
+			if (!entity)
+			{
+				entity = G_Spawn();
+				if (!entity)
+				{
+					mobTargetEntityNumbers[i] = 0;
+					mobTargetMinecraftIds[i] = 0;
+					continue;
+				}
+				entity->classname = "jkcraft_minecraft_mob";
+				entity->svFlags |= SVF_NOCLIENT | SVF_NONNPC_ENEMY;
+				entity->s.eType = ET_GENERAL;
+				entity->s.weapon = WP_NONE;
+				entity->contents = CONTENTS_BODY;
+				entity->clipmask = MASK_SHOT;
+				entity->takedamage = qtrue;
+				entity->health = entity->max_health = 10000;
+				// TEAM_ENEMY means friendly Jedi Academy NPCs regard this non-client
+				// object as hostile while enemy NPCs do not attack their own side.
+				entity->noDamageTeam = TEAM_ENEMY;
+				mobTargetEntityNumbers[i] = entity->s.number;
+				mobTargetMinecraftIds[i] = minecraftId;
+			}
+
+			const auto& mob = snapshot.records[i];
+			const float half = std::max(0.1f, std::min(mob.halfWidth, 4.0f)) * scale;
+			const float height = std::max(0.1f, std::min(mob.height, 8.0f)) * scale;
+			VectorSet(entity->mins, -half, -half, -height * 0.5f);
+			VectorSet(entity->maxs, half, half, height * 0.5f);
+			vec3_t origin{
+				mob.x * scale,
+				-mob.z * scale,
+				(mob.y + mob.height * 0.5f) * scale};
+			G_SetOrigin(entity, origin);
+			entity->health = entity->max_health = 10000;
+			gi.linkentity(entity);
+		}
+	}
+
+	bool IsMinecraftMobTarget(const gentity_t* entity)
+	{
+		return entity && entity->inuse && entity->classname &&
+			!std::strcmp(entity->classname, "jkcraft_minecraft_mob");
+	}
+
+	void AssignMinecraftMobTargetsToFriendlyNpcs()
+	{
+		constexpr float maxDistanceSquared = 1536.0f * 1536.0f;
+		for (int n = 1; n < globals.num_entities; ++n)
+		{
+			gentity_t* actor = &g_entities[n];
+			if (!actor->inuse || !actor->NPC || !actor->client || actor->health <= 0 ||
+				actor->client->playerTeam != TEAM_PLAYER || (actor->svFlags & SVF_IGNORE_ENEMIES)) continue;
+			if (actor->enemy && actor->enemy->inuse && actor->enemy->health > 0 &&
+				!IsMinecraftMobTarget(actor->enemy))
+			{
+				continue; // Never replace mission combat with a Minecraft target.
+			}
+			gentity_t* closest = nullptr;
+			float best = maxDistanceSquared;
+			for (std::uint32_t i = 0; i < jkcraft::protocol::kMaxMobGround; ++i)
+			{
+				const int number = mobTargetEntityNumbers[i];
+				if (number <= 0 || number >= globals.num_entities) continue;
+				gentity_t* candidate = &g_entities[number];
+				if (!IsMinecraftMobTarget(candidate)) continue;
+				const float distance = DistanceSquared(actor->currentOrigin, candidate->currentOrigin);
+				if (distance >= best || !gi.inPVS(actor->currentOrigin, candidate->currentOrigin)) continue;
+				vec3_t eye;
+				VectorCopy(actor->currentOrigin, eye);
+				eye[2] += actor->client->ps.viewheight;
+				trace_t trace{};
+				gi.trace(&trace, eye, nullptr, nullptr, candidate->currentOrigin,
+					actor->s.number, MASK_SHOT, (EG2_Collision)0, 0);
+				if (trace.entityNum != candidate->s.number) continue;
+				closest = candidate;
+				best = distance;
+			}
+			if (closest && actor->enemy != closest)
+			{
+				G_SetEnemy(actor, closest);
+				actor->NPC->enemyLastSeenTime = level.time;
+				VectorCopy(closest->currentOrigin, actor->NPC->enemyLastSeenLocation);
+			}
+		}
 	}
 
 	void AffectNpcsByMinecraftFluids(float scale)
@@ -290,6 +482,66 @@ namespace
 		return false;
 	}
 
+	bool HostGameplayActiveRelaxed()
+	{
+		if (!OpenLink() || header->magic != jkcraft::protocol::kMagic ||
+			header->version != jkcraft::protocol::kVersion)
+		{
+			return false;
+		}
+		// Only one aligned 32-bit field is needed here. Reading it atomically avoids
+		// the deterministic seqlock collision between engine publication and the
+		// game-DLL render callback; the 250 ms hand-off debounce filters the tiny
+		// interval in which the writer may be changing this value.
+		const auto* source = reinterpret_cast<const jkcraft::protocol::HostState*>(
+			reinterpret_cast<const std::uint8_t*>(header) + jkcraft::protocol::kStateOffset);
+		const std::uint32_t flags = Read32(&source->flags);
+		// A user may open the OpenJK menu while reporting or inspecting a broken
+		// hand-off. MenuOpen does not make a finished cinematic active again; only
+		// loading/cinematic ownership must block camera recovery.
+		return (flags & (jkcraft::protocol::kInGame | jkcraft::protocol::kLoading |
+			jkcraft::protocol::kCinematic)) ==
+			jkcraft::protocol::kInGame;
+	}
+
+	bool CameraHandoffReleaseRequested()
+	{
+		if (!OpenLink())
+		{
+			return false;
+		}
+		const auto* handoff = reinterpret_cast<const jkcraft::protocol::CameraHandoff*>(
+			reinterpret_cast<const std::uint8_t*>(header) + jkcraft::protocol::kCameraHandoffOffset);
+		const std::uint32_t current = Read32(&handoff->releaseSeq);
+		const bool engineCinematicActive = Read32(&handoff->cinematicActive) != 0;
+		static std::uint32_t observed = 0;
+		static std::uint64_t releaseUntil = 0;
+		const std::uint64_t now = GetTickCount64();
+		if (current != observed)
+		{
+			observed = current;
+			// The game DLL can be reloaded as part of the map transition after the
+			// engine already published the edge. A non-zero unseen sequence must still
+			// be consumed, but never shut down a newer cinematic that is active now.
+			if (current != 0 && !engineCinematicActive)
+			{
+				releaseUntil = now + 1000;
+			}
+		}
+		return releaseUntil != 0 && now < releaseUntil;
+	}
+
+	bool EngineCinematicActiveRelaxed()
+	{
+		if (!OpenLink())
+		{
+			return false;
+		}
+		const auto* handoff = reinterpret_cast<const jkcraft::protocol::CameraHandoff*>(
+			reinterpret_cast<const std::uint8_t*>(header) + jkcraft::protocol::kCameraHandoffOffset);
+		return Read32(&handoff->cinematicActive) != 0;
+	}
+
 	bool TeleportAcknowledged(std::uint32_t acknowledgement)
 	{
 		if (!acknowledgement || !header)
@@ -325,9 +577,9 @@ namespace
 		const bool remoteView = g_entities[0].inuse && g_entities[0].client &&
 			g_entities[0].client->ps.viewEntity > 0 &&
 			g_entities[0].client->ps.viewEntity < ENTITYNUM_WORLD;
-		// The engine's live snapshot may have resumed gameplay while the game DLL
-		// still carries the previous map's camera/view-entity state.
-		if (JKCraft_ShouldReleaseStaleCamera()) return false;
+		// Scripted camera state is authoritative. Engine cinematic flags can fall
+		// briefly during fades between adjacent parts of one cutscene and must never
+		// transfer player/camera ownership to Minecraft in that gap.
 		return in_camera || remoteView || (preloading && preloading->integer != 0);
 	}
 
@@ -634,6 +886,7 @@ namespace
 						std::ceil(minecraftDamage * jkcraft::protocol::kMinecraftToJediDamage))) : 0;
 					const bool critical = (event->flags & jkcraft::protocol::kHitCritical) != 0;
 					const bool fire = (event->flags & jkcraft::protocol::kHitFire) != 0;
+					const bool minecraftMob = (event->flags & jkcraft::protocol::kHitMob) != 0;
 					int meansOfDeath = MOD_MELEE;
 					if (fire)
 					{
@@ -647,7 +900,10 @@ namespace
 					}
 					if (damage > 0)
 					{
-						G_Damage(actor, player, player, direction, actor->currentOrigin, damage,
+						// A Minecraft mob is not the puppet player. Attribute its hit to the world so
+						// OpenJK does not make the NPC falsely aggro or script-target Jaden.
+						gentity_t* attacker = minecraftMob ? nullptr : player;
+						G_Damage(actor, attacker, attacker, direction, actor->currentOrigin, damage,
 							DAMAGE_NO_KNOCKBACK, meansOfDeath);
 						if (fire && actor->health > 0)
 						{
@@ -802,6 +1058,27 @@ namespace
 		event->a = quantity;
 		event->b = 0;
 		event->c = 0;
+		MemoryBarrier();
+		Write64(headPtr, head + 1);
+		return true;
+	}
+
+	bool PushMinecraftMobHurt(int kind, int minecraftEntityId, int damage, int attackerId)
+	{
+		auto* ring = reinterpret_cast<std::uint8_t*>(header) + jkcraft::protocol::kInputRingOffset;
+		auto* headPtr = reinterpret_cast<std::uint64_t*>(ring + jkcraft::protocol::kInputRingHeadOffset);
+		auto* tailPtr = reinterpret_cast<std::uint64_t*>(ring + jkcraft::protocol::kInputRingTailOffset);
+		const std::uint64_t head = Read64(headPtr);
+		const std::uint64_t tail = Read64(tailPtr);
+		if (head - tail >= jkcraft::protocol::kInputRingEntries) return false;
+		auto* event = reinterpret_cast<jkcraft::protocol::InputEvent*>(
+			ring + jkcraft::protocol::kInputRingDataOffset) +
+			(head & (jkcraft::protocol::kInputRingEntries - 1));
+		event->type = jkcraft::protocol::kInputMobHurt;
+		event->code = static_cast<std::uint16_t>(kind);
+		event->a = minecraftEntityId;
+		event->b = damage * 100;
+		event->c = attackerId;
 		MemoryBarrier();
 		Write64(headPtr, head + 1);
 		return true;
@@ -1003,34 +1280,214 @@ bool JKCraft_ShouldReleaseStaleCamera()
 {
 #if defined(_WIN32)
 	static std::uint64_t gameplaySince = 0;
+	static std::uint64_t cinematicSkipSince = 0;
+	static std::uint64_t cameraFlagMismatchSince = 0;
+	static bool recoveringSkippedCinematic = false;
 	const bool remoteView = g_entities[0].inuse && g_entities[0].client &&
 		g_entities[0].client->ps.viewEntity > 0 &&
 		g_entities[0].client->ps.viewEntity < ENTITYNUM_WORLD;
 	cvar_t* cinematic = gi.cvar("jkc_cinematic", "0", 0);
 	cvar_t* preload = gi.cvar("jkc_preloading", "0", 0);
+	cvar_t* skipping = gi.cvar("skippingCinematic", "0", 0);
+	if (!cameraSync || !cameraSync->integer)
+	{
+		gameplaySince = 0;
+		cinematicSkipSince = 0;
+		cameraFlagMismatchSince = 0;
+		recoveringSkippedCinematic = false;
+		return false;
+	}
+	jkcraft::protocol::MinecraftState minecraft{};
+	if (!ReadMinecraftState(minecraft) || !(minecraft.flags & jkcraft::protocol::kMinecraftInWorld) ||
+		(minecraft.flags & jkcraft::protocol::kMinecraftDead))
+	{
+		gameplaySince = 0;
+		cinematicSkipSince = 0;
+		cameraFlagMismatchSince = 0;
+		recoveringSkippedCinematic = false;
+		return false;
+	}
+	const std::uint64_t now = GetTickCount64();
+	// The engine publishes an explicit falling edge for cinematic ownership.
+	// Unlike cvar/state inference, this event cannot be missed by the game DLL
+	// during fades or map-transition callbacks.
+	if (CameraHandoffReleaseRequested())
+	{
+		recoveringSkippedCinematic = true;
+		return true;
+	}
+	// Natural level cinematics can finish through a fade/script transition that
+	// clears the engine-facing cvar without calling CGCam_Disable in the game DLL.
+	// This is the exact split state observed in the live client: in_camera stayed
+	// true while jkc_cinematic and both viewEntity fields were already zero. Do
+	// not depend on the concurrently-written HostState to repair this condition.
+	if (in_camera && !EngineCinematicActiveRelaxed() &&
+		(!preload || preload->integer == 0))
+	{
+		if (!cameraFlagMismatchSince) cameraFlagMismatchSince = now;
+		if (now >= cameraFlagMismatchSince + 250)
+		{
+			recoveringSkippedCinematic = true;
+			return true;
+		}
+	}
+	else
+	{
+		cameraFlagMismatchSince = 0;
+	}
+	// CGCam_Disable clears in_camera immediately, but the server snapshot may keep
+	// the cinematic view entity for several more frames. Keep treating that tail as
+	// stale until both camera markers are gone, otherwise the following frame exposes
+	// native Jaden and steals the camera back from Minecraft.
+	if (recoveringSkippedCinematic)
+	{
+		if (in_camera || remoteView || (cinematic && cinematic->integer != 0))
+		{
+			return true;
+		}
+		recoveringSkippedCinematic = false;
+	}
+	// OpenJK skips scripted cinematics by running their scripts at timescale 100. Some level
+	// scripts reach gameplay without issuing the final camera-disable command, leaving the
+	// native Jedi and its camera drawn over the live Minecraft player forever. A real-time
+	// watchdog is safe here because it is armed only after the player explicitly requested a
+	// skip; ordinary cinematics and surveillance/view-entity cameras never enter this branch.
+	if (in_camera && skipping && skipping->integer != 0)
+	{
+		if (!cinematicSkipSince) cinematicSkipSince = now;
+		if (now >= cinematicSkipSince + 1500)
+		{
+			recoveringSkippedCinematic = true;
+			return true;
+		}
+	}
+	else
+	{
+		cinematicSkipSince = 0;
+	}
 	if ((!in_camera && !remoteView && (!preload || !preload->integer)) ||
-		!cameraSync || !cameraSync->integer ||
 		(cinematic && cinematic->integer != 0))
 	{
 		gameplaySince = 0;
 		return false;
 	}
-	jkcraft::protocol::HostState host{};
-	jkcraft::protocol::MinecraftState minecraft{};
-	if (!ReadHostState(host) || !ReadMinecraftState(minecraft) ||
-		(host.flags & (jkcraft::protocol::kInGame | jkcraft::protocol::kLoading |
-			jkcraft::protocol::kCinematic | jkcraft::protocol::kMenuOpen)) != jkcraft::protocol::kInGame ||
-		!(minecraft.flags & jkcraft::protocol::kMinecraftInWorld) ||
-		(minecraft.flags & jkcraft::protocol::kMinecraftDead))
+	if (!HostGameplayActiveRelaxed())
 	{
 		gameplaySince = 0;
 		return false;
 	}
-	const std::uint64_t now = GetTickCount64();
 	if (!gameplaySince) gameplaySince = now;
 	return now >= gameplaySince + 250;
 #else
 	return false;
+#endif
+}
+
+bool JKCraft_GameplayOwnsCameraNow()
+{
+#if defined(_WIN32)
+	if (!cameraSync || !cameraSync->integer || !OpenLink() ||
+		header->magic != jkcraft::protocol::kMagic ||
+		header->version != jkcraft::protocol::kVersion)
+	{
+		return false;
+	}
+	jkcraft::protocol::MinecraftState minecraft{};
+	if (!ReadMinecraftState(minecraft) ||
+		!(minecraft.flags & jkcraft::protocol::kMinecraftInWorld) ||
+		(minecraft.flags & jkcraft::protocol::kMinecraftDead))
+	{
+		return false;
+	}
+	const auto* handoff = reinterpret_cast<const jkcraft::protocol::CameraHandoff*>(
+		reinterpret_cast<const std::uint8_t*>(header) + jkcraft::protocol::kCameraHandoffOffset);
+	const auto* host = reinterpret_cast<const jkcraft::protocol::HostState*>(
+		reinterpret_cast<const std::uint8_t*>(header) + jkcraft::protocol::kStateOffset);
+	const std::uint32_t hostFlags = Read32(&host->flags);
+	const bool hostGameplay =
+		(hostFlags & (jkcraft::protocol::kInGame | jkcraft::protocol::kLoading |
+			jkcraft::protocol::kCinematic)) == jkcraft::protocol::kInGame;
+	return hostGameplay && Read32(&handoff->cinematicActive) == 0;
+#else
+	return false;
+#endif
+}
+
+void JKCraft_PublishCameraDebug()
+{
+#if defined(_WIN32)
+	if (!OpenLink())
+	{
+		return;
+	}
+	jkcraft::protocol::MinecraftState minecraft{};
+	const bool haveMinecraft = ReadMinecraftState(minecraft);
+	const bool remoteServerView = g_entities[0].inuse && g_entities[0].client &&
+		g_entities[0].client->ps.viewEntity > 0 &&
+		g_entities[0].client->ps.viewEntity < ENTITYNUM_WORLD;
+	std::uint32_t flags = 0;
+	if (in_camera) flags |= 1u << 0;
+	if (player_locked) flags |= 1u << 1;
+	if (JKCraft_ForceFirstPerson()) flags |= 1u << 2;
+	if (JKCraft_HideNativePlayer()) flags |= 1u << 3;
+	if (cg.renderingThirdPerson) flags |= 1u << 4;
+	if (remoteServerView) flags |= 1u << 5;
+	if (cameraSync && cameraSync->integer) flags |= 1u << 6;
+	if (haveMinecraft && (minecraft.flags & jkcraft::protocol::kMinecraftInWorld)) flags |= 1u << 7;
+	if (HostGameplayActiveRelaxed()) flags |= 1u << 8;
+	if (preloading && preloading->integer) flags |= 1u << 9;
+
+	static std::uint32_t transitions = 0;
+	static bool previousCamera = false;
+	if (previousCamera != in_camera) ++transitions;
+	previousCamera = in_camera;
+
+	auto* debug = reinterpret_cast<jkcraft::protocol::DebugState*>(
+		reinterpret_cast<std::uint8_t*>(header) + jkcraft::protocol::kDebugStateOffset);
+	std::uint32_t sequence = Read32(&debug->seq);
+	if (sequence & 1u) ++sequence;
+	Write32(&debug->seq, sequence + 1u);
+	debug->flags = flags;
+	debug->snapshotViewEntity = cg.snap ? cg.snap->ps.viewEntity : -1;
+	debug->serverViewEntity = g_entities[0].inuse && g_entities[0].client
+		? g_entities[0].client->ps.viewEntity : -1;
+	debug->snapshotClientNum = cg.snap ? cg.snap->ps.clientNum : -1;
+	debug->localEntityType = cg.snap
+		? cg_entities[cg.snap->ps.clientNum].currentState.eType : -1;
+	VectorCopy(cg.refdef.vieworg, debug->viewOrigin);
+	VectorCopy(cg.refdefViewAngles, debug->viewAngles);
+	debug->cameraTransitions = transitions;
+	// Pack raw values used by the handoff check for live diagnostics:
+	// bits 0..7 host flags, bit 8 engine cinematic, bits 16..31 release sequence.
+	const auto* host = reinterpret_cast<const jkcraft::protocol::HostState*>(
+		reinterpret_cast<const std::uint8_t*>(header) + jkcraft::protocol::kStateOffset);
+	const auto* handoff = reinterpret_cast<const jkcraft::protocol::CameraHandoff*>(
+		reinterpret_cast<const std::uint8_t*>(header) + jkcraft::protocol::kCameraHandoffOffset);
+	debug->reserved = (Read32(&host->flags) & 0xffu) |
+		((Read32(&handoff->cinematicActive) & 1u) << 8) |
+		((Read32(&handoff->releaseSeq) & 0xffffu) << 16);
+	MemoryBarrier();
+	Write32(&debug->seq, sequence + 2u);
+#endif
+}
+
+void JKCraft_PublishCGameStage(unsigned int stage)
+{
+#if defined(_WIN32)
+	if (!OpenLink())
+	{
+		return;
+	}
+	auto* debug = reinterpret_cast<jkcraft::protocol::DebugState*>(
+		reinterpret_cast<std::uint8_t*>(header) + jkcraft::protocol::kDebugStateOffset);
+	std::uint32_t sequence = Read32(&debug->seq);
+	if (sequence & 1u) ++sequence;
+	Write32(&debug->seq, sequence + 1u);
+	debug->reserved = 0xc0000000u | (stage & 0xffffu);
+	MemoryBarrier();
+	Write32(&debug->seq, sequence + 2u);
+#else
+	(void)stage;
 #endif
 }
 
@@ -1129,6 +1586,8 @@ void JKCraft_ApplyPlayer(gentity_s* player)
 	jkcraft::protocol::HostState hostState{};
 	if (ReadHostState(hostState)) {
 		SyncMinecraftCells(scale, hostState.worldId);
+		SyncMinecraftMobTargets(scale, hostState.worldId);
+		AssignMinecraftMobTargetsToFriendlyNpcs();
 		AffectNpcsByMinecraftFluids(scale);
 	}
 	DrainGameEvents(player, scale);
@@ -1300,6 +1759,52 @@ bool JKCraft_ForwardPlayerDamage(gentity_s* target, gentity_s* attacker,
 	return forwarded;
 #else
 	(void)target; (void)attacker; (void)damage; (void)meansOfDeath; (void)damageFlags;
+	return false;
+#endif
+}
+
+bool JKCraft_ForwardMinecraftMobDamage(gentity_s* target, gentity_s* attacker,
+	int damage, int meansOfDeath)
+{
+#if defined(_WIN32)
+	if (!target || !target->inuse || damage <= 0 || !target->classname ||
+		std::strcmp(target->classname, "jkcraft_minecraft_mob") ||
+		!attacker || !attacker->inuse || !attacker->NPC || !attacker->client ||
+		attacker->client->playerTeam != TEAM_PLAYER ||
+		!OpenLink() || header->magic != jkcraft::protocol::kMagic ||
+		header->version != jkcraft::protocol::kVersion)
+	{
+		return false;
+	}
+	std::uint32_t minecraftId = 0;
+	for (std::uint32_t i = 0; i < jkcraft::protocol::kMaxMobGround; ++i)
+	{
+		if (mobTargetEntityNumbers[i] == target->s.number)
+		{
+			minecraftId = mobTargetMinecraftIds[i];
+			break;
+		}
+	}
+	if (!minecraftId) return false;
+	const std::uint64_t now = GetTickCount64();
+	const std::uint64_t heartbeat = Read64(&header->minecraftHeartbeatMs);
+	if (!heartbeat || now < heartbeat || now - heartbeat >= 3000) return false;
+	int kind = 3;
+	if (meansOfDeath == MOD_MELEE || meansOfDeath == MOD_SABER) kind = 0;
+	else if (meansOfDeath == MOD_FORCE_GRIP || meansOfDeath == MOD_FORCE_LIGHTNING ||
+		meansOfDeath == MOD_FORCE_DRAIN) kind = 2;
+	else if (meansOfDeath >= MOD_BRYAR && meansOfDeath <= MOD_LASERTRIP_ALT) kind = 1;
+	const bool forwarded = PushMinecraftMobHurt(kind, static_cast<int>(minecraftId), damage,
+		attacker->s.number);
+	if (forwarded && !loggedMinecraftMobHit)
+	{
+		loggedMinecraftMobHit = true;
+		gi.Printf("JKCraft: first native JA NPC shot hit Minecraft mob %u (%d damage)\n",
+			minecraftId, damage);
+	}
+	return forwarded;
+#else
+	(void)target; (void)attacker; (void)damage; (void)meansOfDeath;
 	return false;
 #endif
 }

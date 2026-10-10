@@ -33,6 +33,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "qcommon/stringed_ingame.h"
 #include "sys/sys_loadlib.h"
 #include "qcommon/ojk_saved_game.h"
+#include "../jkcraft/jkc_link.h"
 
 #define	RETRANSMIT_TIMEOUT	3000	// time between connection packet retransmits
 
@@ -762,7 +763,6 @@ extern cvar_t	*cl_newClock;
 static unsigned int frameCount;
 float avgFrametime=0.0;
 void CL_Frame ( int msec,float fractionMsec ) {
-
 	if ( !com_cl_running->integer ) {
 		return;
 	}
@@ -1378,4 +1378,3 @@ void CL_Shutdown( void ) {
 
 	Com_Printf( "-----------------------\n" );
 }
-

@@ -407,6 +407,11 @@ void CL_PlayInGameCinematic_f(void);
 qboolean CL_CheckPendingCinematic(void);
 qboolean CL_IsRunningInGameCinematic(void);
 qboolean CL_InGameCinematicOnStandBy(void);
+// True when an in-game ROQ has reached its terminal idle/EOF state but the
+// legacy cinematic ownership flag has not yet been cleared.
+qboolean CL_InGameCinematicFinished(void);
+// Local diagnostic bits for JKCraft's screen-routing telemetry.
+unsigned int CL_InGameCinematicDebugBits(void);
 void SCR_DrawCinematic (void);
 void SCR_RunCinematic (void);
 void SCR_StopCinematic( qboolean bAllowRefusal = qfalse );
