@@ -28,6 +28,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "client.h"
 #include "client_ui.h"
+#include "vmachine.h"
 #include <limits.h>
 #include "../ghoul2/G2.h"
 #include "qcommon/stringed_ingame.h"
@@ -970,6 +971,14 @@ void CL_StartHunkUsers( void ) {
 		S_BeginRegistration();
 	}
 
+	// A map transition may unload the shared SP game/cgame DLL after the client
+	// flag was set. Treat the real vmMain pointer as authoritative and recover
+	// the client lifecycle instead of rendering the final cinematic frame forever.
+	if ( cls.cgameStarted && !cgvm.entryPoint ) {
+		Com_Printf( "JKCraft: cgame entry point was lost during map transition; rebinding\n" );
+		cls.cgameStarted = qfalse;
+	}
+
 	//we require the ui to be loaded here or else it crashes trying to access the ui on command line map loads
 	if ( !cls.uiStarted ) {
 		cls.uiStarted = qtrue;
@@ -979,6 +988,10 @@ void CL_StartHunkUsers( void ) {
 //	if ( !cls.cgameStarted && cls.state > CA_CONNECTED && cls.state != CA_CINEMATIC ) {
 	if ( !cls.cgameStarted && cls.state > CA_CONNECTED && (cls.state != CA_CINEMATIC && !CL_IsRunningInGameCinematic()) )
 	{
+		if ( !cgvm.entryPoint && !SV_RebindCGameVM() )
+		{
+			return;
+		}
 		cls.cgameStarted = qtrue;
 		CL_InitCGame();
 	}

@@ -1474,6 +1474,10 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 		timei-=0;
 	}
 	re.G2API_SetTime(cl.serverTime,G2T_CG_TIME);
+	if ( Cvar_VariableIntegerValue( "jkc_enabled" ) != 0 &&
+		SV_JKCraftDrawActiveFrame( timei, static_cast<int>( stereo ) ) ) {
+		return;
+	}
 	VM_Call( CG_DRAW_ACTIVE_FRAME,timei, stereo, qfalse );
 //	VM_Debug( 0 );
 }

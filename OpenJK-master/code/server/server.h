@@ -230,6 +230,10 @@ svEntity_t	*SV_SvEntityForGentity( gentity_t *gEnt );
 gentity_t	*SV_GEntityForSvEntity( svEntity_t *svEnt );
 void		SV_InitGameProgs (void);
 void		SV_ShutdownGameProgs (qboolean shutdownCin);
+qboolean	SV_RebindCGameVM (void);
+qboolean	SV_JKCraftReleaseCamera (void);
+qboolean	SV_JKCraftCameraReleaseAvailable (void);
+qboolean	SV_JKCraftDrawActiveFrame (int serverTime, int stereoView);
 qboolean	SV_inPVS (const vec3_t p1, const vec3_t p2);
 
 

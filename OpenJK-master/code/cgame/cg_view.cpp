@@ -2118,6 +2118,13 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		cg.renderingThirdPerson = qfalse;
 	}
 
+	// Repair a scripted camera that survived the point where its script returned
+	// control to the player. This must run before choosing the frame's view;
+	// otherwise the stale camera renders one more native-Jaden frame forever.
+	if ( in_camera && JKCraft_ShouldReleaseStaleCamera() )
+	{
+		CGCam_Disable();
+	}
 	JKCraft_PublishCameraDebug();
 	if ( in_camera )
 	{

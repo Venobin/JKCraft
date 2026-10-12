@@ -12,6 +12,7 @@ JKCraft engine-side shared-memory bootstrap.
 #include "qcommon/cm_public.h"
 #include "qcommon/cm_local.h"
 #include "client/client.h"
+#include "server/server.h"
 #include "game/surfaceflags.h"
 
 #include <algorithm>
@@ -37,6 +38,8 @@ namespace jkcraft
 		cvar_t* enabled = nullptr;
 		cvar_t* unitsPerBlock = nullptr;
 		cvar_t* cinematicState = nullptr;
+		cvar_t* forceGameplay = nullptr;
+		cvar_t* autoSkipCinematics = nullptr;
 		cvar_t* fullPreload = nullptr;
 		cvar_t* preloadMaxRegions = nullptr;
 		cvar_t* preloadBudgetMs = nullptr;
@@ -1317,6 +1320,7 @@ namespace jkcraft
 
 		void WriteHostState()
 		{
+			static std::uint64_t gameplayCameraReleaseSince = 0;
 			if (!header)
 			{
 				return;
@@ -1340,9 +1344,19 @@ namespace jkcraft
 			// the teleport back to Minecraft when the console closes.
 			const bool remoteView = active && cl.frame.ps.viewEntity > 0 &&
 				cl.frame.ps.viewEntity < ENTITYNUM_WORLD;
-			const bool cinematic = active &&
-				((cinematicState && cinematicState->integer != 0) || remoteView ||
-					CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy());
+			// Temporary fail-safe mode: keep Minecraft in control while level
+			// cinematics continue running in the background. Remote-view consoles
+			// remain JA-owned so mission interactions using them are not broken.
+			const bool scriptedCinematic = cinematicState && cinematicState->integer != 0;
+			const bool autoSkipNow = autoSkipCinematics && autoSkipCinematics->integer != 0;
+			// While the native fast-forward skip is running, preserve cinematic
+			// ownership long enough for its mission scripts to execute. Forced
+			// gameplay remains the fallback immediately after the camera releases.
+			const bool forceGameplayNow = forceGameplay && forceGameplay->integer != 0 &&
+				!(autoSkipNow && scriptedCinematic);
+			const bool cinematic = active && (remoteView || (!forceGameplayNow &&
+				(scriptedCinematic ||
+					CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy())));
 			const std::uint32_t worldId = active ? HashMapName(cl.mapname) : 0u;
 			if (worldId != 0 && worldId != lastWorldId)
 			{
@@ -1378,13 +1392,50 @@ namespace jkcraft
 				lastWaterWorldId = 0;
 				Com_Printf("JKCraft: Minecraft process changed to %u; republishing world data\n", minecraftPid);
 			}
+			auto releaseStaleCamera = [&]()
+			{
+				auto* debug = reinterpret_cast<protocol::EngineCameraDebug*>(
+					reinterpret_cast<std::uint8_t*>(header) + protocol::kEngineCameraDebugOffset);
+				InterlockedIncrement(reinterpret_cast<volatile LONG*>(&debug->attempts));
+				InterlockedExchange(reinterpret_cast<volatile LONG*>(&debug->exportResolved),
+					SV_JKCraftCameraReleaseAvailable() ? 1 : 0);
+				if (SV_JKCraftReleaseCamera())
+				{
+					InterlockedIncrement(reinterpret_cast<volatile LONG*>(&debug->releases));
+				}
+			};
+
 			if (lastCinematic && !cinematic && active)
 			{
 				// A scripted camera may also have moved the native JA player. Make Minecraft
 				// rejoin that authoritative position when control is returned to the player.
+				++cameraReleaseSeq;
 				++teleportSeq;
 				Key_ClearStates();
+				// Do not rely on a rendered cgame frame or on the console command buffer
+				// to consume the handoff. yavin1b can leave its last camera frame alive
+				// after both engine cinematic markers are already clear. Invoke the
+				// loaded cgame DLL directly and clear only its stale camera ownership;
+				// the level script remains authoritative for player_locked.
+				releaseStaleCamera();
 				Com_DPrintf("JKCraft: cinematic ended; returning input to Minecraft\n");
+			}
+			// Some level scripts issue another camera command after the engine-facing
+			// cinematic flag has already fallen. Keep a debounced, direct DLL handoff
+			// armed throughout confirmed gameplay so that late stale writes cannot win.
+			// A real camera or remote-view console resets this timer immediately.
+			const std::uint64_t now = GetTickCount64();
+			if (active && !loading && !cinematic && !remoteView)
+			{
+				if (!gameplayCameraReleaseSince) gameplayCameraReleaseSince = now;
+				if (now >= gameplayCameraReleaseSince + 750)
+				{
+					releaseStaleCamera();
+				}
+			}
+			else
+			{
+				gameplayCameraReleaseSince = 0;
 			}
 			lastCinematic = cinematic;
 			auto* cameraHandoff = reinterpret_cast<protocol::CameraHandoff*>(
@@ -1582,6 +1633,8 @@ namespace jkcraft
 		enabled = Cvar_Get("jkc_enabled", "1", CVAR_ARCHIVE_ND);
 		unitsPerBlock = Cvar_Get("jkc_units_per_block", "32", CVAR_ARCHIVE_ND);
 		cinematicState = Cvar_Get("jkc_cinematic", "0", 0);
+		forceGameplay = Cvar_Get("jkc_force_gameplay", "1", CVAR_ARCHIVE_ND);
+		autoSkipCinematics = Cvar_Get("jkc_auto_skip_cinematics", "1", CVAR_ARCHIVE_ND);
 		fullPreload = Cvar_Get("jkc_full_preload", "1", CVAR_ARCHIVE_ND);
 		directCollision = Cvar_Get("jkc_direct_collision", "1", CVAR_ARCHIVE_ND);
 		lastDirectCollision = directCollision->integer != 0;
@@ -1655,11 +1708,15 @@ void Frame()
 	bool MinecraftOwnsInput()
 	{
 #if defined(_WIN32)
+		const bool scriptedCinematic = cinematicState && cinematicState->integer != 0;
+		const bool autoSkipNow = autoSkipCinematics && autoSkipCinematics->integer != 0;
+		const bool forceGameplayNow = forceGameplay && forceGameplay->integer != 0 &&
+			!(autoSkipNow && scriptedCinematic);
 		if (!enabled || !enabled->integer || !header || cls.state != CA_ACTIVE ||
 			(cl.frame.valid && cl.frame.ps.viewEntity > 0 &&
 				cl.frame.ps.viewEntity < ENTITYNUM_WORLD) ||
-			(cinematicState && cinematicState->integer != 0) ||
-			CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy() ||
+			(!forceGameplayNow && ((cinematicState && cinematicState->integer != 0) ||
+				CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy())) ||
 			(Key_GetCatcher() & (KEYCATCH_UI | KEYCATCH_CONSOLE)) != 0 ||
 			!MinecraftAlive(GetTickCount64()))
 		{

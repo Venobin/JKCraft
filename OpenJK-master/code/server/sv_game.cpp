@@ -26,6 +26,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../server/exe_headers.h"
 
 #include "../qcommon/cm_local.h"
+#include "sys/sys_loadlib.h"
 
 #include "server.h"
 #include "../client/vmachine.h"
@@ -45,6 +46,10 @@ Ghoul2 Insert End
 */
 
 static void *gameLibrary;
+typedef qboolean JKCraftReleaseCameraProc( void );
+static JKCraftReleaseCameraProc *jkcraftReleaseCamera;
+typedef void JKCraftDrawActiveFrameProc( int serverTime, int stereoView );
+static JKCraftDrawActiveFrameProc *jkcraftDrawActiveFrame;
 
 //prototypes
 extern void Com_WriteCam ( const char *text );
@@ -412,6 +417,42 @@ void SV_ShutdownGameProgs (qboolean shutdownCin) {
 
 	ge = NULL;
 	cgvm.entryPoint = 0;
+	jkcraftReleaseCamera = NULL;
+	jkcraftDrawActiveFrame = NULL;
+}
+
+/*
+===============
+SV_RebindCGameVM
+
+The SP game and cgame share one DLL. During scripted map transitions the
+server owns unloading/reloading that DLL, while the client owns cgameStarted.
+If those lifecycles cross, cgameStarted can remain true after cgvm.entryPoint
+was cleared, leaving the last cinematic frame frozen forever. Rebind the
+already loaded game library without reloading or duplicating it.
+===============
+*/
+qboolean SV_RebindCGameVM (void) {
+	if ( !gameLibrary ) {
+		return qfalse;
+	}
+	return CL_InitCGameVM( gameLibrary );
+}
+
+qboolean SV_JKCraftReleaseCamera (void) {
+	return jkcraftReleaseCamera ? jkcraftReleaseCamera() : qfalse;
+}
+
+qboolean SV_JKCraftCameraReleaseAvailable (void) {
+	return jkcraftReleaseCamera ? qtrue : qfalse;
+}
+
+qboolean SV_JKCraftDrawActiveFrame (int serverTime, int stereoView) {
+	if ( !jkcraftDrawActiveFrame ) {
+		return qfalse;
+	}
+	jkcraftDrawActiveFrame( serverTime, stereoView );
+	return qtrue;
 }
 
 // this is a compile-helper function since Z_Malloc can now become a macro with __LINE__ etc
@@ -1058,6 +1099,14 @@ void SV_InitGameProgs (void) {
 	gameLibrary = Sys_LoadSPGameDll( gamename, &GetGameAPI );
 	if ( !gameLibrary )
 		Com_Error( ERR_DROP, "Failed to load %s library", gamename );
+
+	// JKCraft uses a direct export for the final camera handoff. This deliberately
+	// bypasses vmMain: scripted map transitions can leave that dispatch path alive
+	// enough to look valid while the last cgame camera frame is no longer serviced.
+	jkcraftReleaseCamera = reinterpret_cast<JKCraftReleaseCameraProc *>(
+		Sys_LoadFunction( gameLibrary, "JKCraft_ReleaseCameraDirect" ) );
+	jkcraftDrawActiveFrame = reinterpret_cast<JKCraftDrawActiveFrameProc *>(
+		Sys_LoadFunction( gameLibrary, "JKCraft_DrawActiveFrameDirect" ) );
 
 	ge = (game_export_t *)GetGameAPI( &import );
 	if (!ge)

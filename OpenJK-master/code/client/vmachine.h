@@ -59,7 +59,11 @@ Ghoul2 Insert End
 	CG_DRAW_DATAPAD_OBJECTIVES,
 	CG_DRAW_DATAPAD_WEAPONS,
 	CG_DRAW_DATAPAD_INVENTORY,
-	CG_DRAW_DATAPAD_FORCEPOWERS
+	CG_DRAW_DATAPAD_FORCEPOWERS,
+
+	// JKCraft engine -> cgame camera ownership handoff. Keep this at the end so
+	// every original OpenJK export number remains unchanged.
+	CG_JKCRAFT_RELEASE_CAMERA
 
 } cgameExport_t;
 

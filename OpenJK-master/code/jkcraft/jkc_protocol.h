@@ -23,6 +23,8 @@ namespace jkcraft
 	static constexpr std::uint64_t kMinecraftStateOffset = 0x200;
 	static constexpr std::uint64_t kHostCursorOffset = 0x40;
 	static constexpr std::uint64_t kCameraHandoffOffset = 0x60;
+	// Engine-owned counters for the direct game-DLL camera release path.
+	static constexpr std::uint64_t kEngineCameraDebugOffset = 0x70;
 	// Internal diagnostic snapshot written by the game DLL. It lives in the
 	// unused header gap and is intentionally not part of the client handshake.
 	static constexpr std::uint64_t kDebugStateOffset = 0x80;
@@ -106,7 +108,18 @@ namespace jkcraft
 	};
 
 	static_assert(sizeof(CameraHandoff) == 0x10);
-	static_assert(kCameraHandoffOffset + sizeof(CameraHandoff) <= kDebugStateOffset);
+	static_assert(kCameraHandoffOffset + sizeof(CameraHandoff) <= kEngineCameraDebugOffset);
+
+	struct EngineCameraDebug
+	{
+		std::uint32_t attempts;
+		std::uint32_t releases;
+		std::uint32_t exportResolved;
+		std::uint32_t reserved;
+	};
+
+	static_assert(sizeof(EngineCameraDebug) == 0x10);
+	static_assert(kEngineCameraDebugOffset + sizeof(EngineCameraDebug) <= kDebugStateOffset);
 
 	struct DebugState
 	{

@@ -27,6 +27,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../server/exe_headers.h"
 
 #include "client.h"
+#include "vmachine.h"
 #include "../jkcraft/jkc_link.h"
 #include "client_ui.h"
 
@@ -424,6 +425,11 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	// reached IDLE/EOF, run the normal cleanup so gameplay rendering resumes.
 	// Repeating this on a following frame is intentional: the original text-
 	// crawl chaining code may need a second stop call to retire its final flag.
+	if (cls.state == CA_ACTIVE && Cvar_VariableIntegerValue("jkc_auto_skip_cinematics") != 0 &&
+		(CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy()))
+	{
+		SCR_StopCinematic();
+	}
 	if (cls.state == CA_ACTIVE && Cvar_VariableIntegerValue("jkc_enabled") != 0 &&
 		CL_InGameCinematicFinished())
 	{
@@ -433,6 +439,7 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	qboolean uiFullscreen = _UI_IsFullscreen();
 	if (uiFullscreen) jkcraftScreenRoute |= 1u << 16;
 	if (cls.state == CA_ACTIVE) jkcraftScreenRoute |= 1u << 17;
+	if (cgvm.entryPoint) jkcraftScreenRoute |= 1u << 21;
 	if (cls.cgameStarted) jkcraftScreenRoute |= 1u << 22;
 	if (Cvar_VariableIntegerValue("cl_paused") != 0) jkcraftScreenRoute |= 1u << 23;
 
@@ -464,7 +471,8 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 			CL_CGameRendering( stereoFrame );
 			break;
 		case CA_ACTIVE:
-			if (CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy())
+			if (Cvar_VariableIntegerValue("jkc_force_gameplay") == 0 &&
+				(CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy()))
 			{
 				jkcraftScreenRoute |= 1u << 18;
 				SCR_DrawCinematic();

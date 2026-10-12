@@ -32,6 +32,7 @@ bool		in_camera = false;
 camera_t	client_camera={};
 static char jkcraftCameraOwnerMap[MAX_QPATH] = {};
 extern qboolean	player_locked;
+extern void G_StartCinematicSkip( void );
 
 extern gentity_t *G_Find (gentity_t *from, int fieldofs, const char *match);
 extern void G_UseTargets (gentity_t *ent, gentity_t *activator);
@@ -141,6 +142,16 @@ extern void WP_ForcePowerStop( gentity_t *self, forcePowers_t forcePower );
 			}
 		}
 	}
+
+	// Temporary JKCraft playtest policy: use Jedi Academy's own cinematic-skip
+	// path so level-specific skip scripts and required mission events still run.
+	cvar_t* autoSkip = gi.cvar("jkc_auto_skip_cinematics", "1", CVAR_ARCHIVE);
+	cvar_t* alreadySkipping = gi.cvar("skippingCinematic", "0", CVAR_ROM);
+	if ( autoSkip && autoSkip->integer != 0 &&
+		alreadySkipping && alreadySkipping->integer == 0 )
+	{
+		G_StartCinematicSkip();
+	}
 }
 /*
 -------------------------
@@ -181,6 +192,21 @@ void CGCam_Disable( void )
 	//we just came out of camera, so update cg.refdef.vieworg out of the camera's origin so the snapshot will know our new ori
 	VectorCopy( g_entities[0].currentOrigin, cg.refdef.vieworg);
 	VectorCopy( g_entities[0].client->ps.viewangles, cg.refdefViewAngles );
+}
+
+extern "C" Q_EXPORT qboolean JKCraft_ReleaseCameraDirect( void )
+{
+	cvar_t* forceGameplay = gi.cvar("jkc_force_gameplay", "1", CVAR_ARCHIVE);
+	if ( forceGameplay && forceGameplay->integer != 0 )
+	{
+		player_locked = qfalse;
+	}
+	if ( !in_camera )
+	{
+		return qfalse;
+	}
+	CGCam_Disable();
+	return qtrue;
 }
 
 /*

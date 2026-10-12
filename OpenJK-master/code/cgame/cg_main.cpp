@@ -116,6 +116,13 @@ extern "C" Q_EXPORT intptr_t QDECL vmMain( int command, intptr_t arg0, intptr_t 
 	case CG_DRAW_ACTIVE_FRAME:
 		CG_DrawActiveFrame( arg0, (stereoFrame_t) arg1 );
 		return 0;
+	case CG_JKCRAFT_RELEASE_CAMERA:
+		if ( in_camera )
+		{
+			CGCam_Disable();
+			return 1;
+		}
+		return 0;
 	case CG_CROSSHAIR_PLAYER:
 		return CG_CrosshairPlayer();
 	case CG_CAMERA_POS:
@@ -183,6 +190,16 @@ Ghoul2 Insert End
 		return 0;
 	}
 	return -1;
+}
+
+// JKCraft's SP game and cgame live in the same DLL. Some scripted cinematic
+// transitions leave the engine's cached vmMain route non-null but detached
+// from the live module, so the last cinematic frame remains on screen even
+// though gameplay and the Minecraft bridge continue. Export the actual draw
+// entry independently and let the engine resolve it from the current module.
+extern "C" Q_EXPORT void JKCraft_DrawActiveFrameDirect( int serverTime, int stereoView )
+{
+	CG_DrawActiveFrame( serverTime, static_cast<stereoFrame_t>( stereoView ) );
 }
 
 /*

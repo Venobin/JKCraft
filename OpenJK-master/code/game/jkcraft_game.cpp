@@ -34,6 +34,8 @@ namespace
 	cvar_t* unitsPerBlock = nullptr;
 	cvar_t* cameraSync = nullptr;
 	cvar_t* preloading = nullptr;
+	cvar_t* forceGameplay = nullptr;
+	cvar_t* autoSkipCinematics = nullptr;
 	cvar_t* combatTest = nullptr;
 	float lastFov = -1.0f;
 	std::uint32_t lastCameraMode = ~0u;
@@ -577,6 +579,30 @@ namespace
 		const bool remoteView = g_entities[0].inuse && g_entities[0].client &&
 			g_entities[0].client->ps.viewEntity > 0 &&
 			g_entities[0].client->ps.viewEntity < ENTITYNUM_WORLD;
+		if (!forceGameplay)
+		{
+			forceGameplay = gi.cvar("jkc_force_gameplay", "1", CVAR_ARCHIVE);
+		}
+		if (!autoSkipCinematics)
+		{
+			autoSkipCinematics = gi.cvar("jkc_auto_skip_cinematics", "1", CVAR_ARCHIVE);
+		}
+		// During native fast-forward the scripted camera must retain ownership;
+		// otherwise its completion/skip script can be interrupted before it opens
+		// doors, spawns actors or advances the mission objective.
+		if (autoSkipCinematics->integer != 0 && in_camera)
+		{
+			return true;
+		}
+		jkcraft::protocol::MinecraftState minecraft{};
+		const bool forceGameplayNow = forceGameplay->integer != 0 && !remoteView &&
+			(!preloading || preloading->integer == 0) && ReadMinecraftState(minecraft) &&
+			(minecraft.flags & jkcraft::protocol::kMinecraftInWorld) &&
+			!(minecraft.flags & jkcraft::protocol::kMinecraftDead);
+		if (forceGameplayNow)
+		{
+			return false;
+		}
 		// Scripted camera state is authoritative. Engine cinematic flags can fall
 		// briefly during fades between adjacent parts of one cutscene and must never
 		// transfer player/camera ownership to Minecraft in that gap.
@@ -1282,6 +1308,8 @@ bool JKCraft_ShouldReleaseStaleCamera()
 	static std::uint64_t gameplaySince = 0;
 	static std::uint64_t cinematicSkipSince = 0;
 	static std::uint64_t cameraFlagMismatchSince = 0;
+	static std::uint64_t unlockedCameraSince = 0;
+	static bool sawLockedScriptedCamera = false;
 	static bool recoveringSkippedCinematic = false;
 	const bool remoteView = g_entities[0].inuse && g_entities[0].client &&
 		g_entities[0].client->ps.viewEntity > 0 &&
@@ -1294,6 +1322,8 @@ bool JKCraft_ShouldReleaseStaleCamera()
 		gameplaySince = 0;
 		cinematicSkipSince = 0;
 		cameraFlagMismatchSince = 0;
+		unlockedCameraSince = 0;
+		sawLockedScriptedCamera = false;
 		recoveringSkippedCinematic = false;
 		return false;
 	}
@@ -1304,10 +1334,42 @@ bool JKCraft_ShouldReleaseStaleCamera()
 		gameplaySince = 0;
 		cinematicSkipSince = 0;
 		cameraFlagMismatchSince = 0;
+		unlockedCameraSince = 0;
+		sawLockedScriptedCamera = false;
 		recoveringSkippedCinematic = false;
 		return false;
 	}
+	if (!forceGameplay)
+	{
+		forceGameplay = gi.cvar("jkc_force_gameplay", "1", CVAR_ARCHIVE);
+	}
+	if (!autoSkipCinematics)
+	{
+		autoSkipCinematics = gi.cvar("jkc_auto_skip_cinematics", "1", CVAR_ARCHIVE);
+	}
+	const bool nativeSkipActive = autoSkipCinematics->integer != 0 &&
+		skipping && skipping->integer != 0;
+	if (forceGameplay->integer != 0 && !nativeSkipActive && !remoteView &&
+		(!preload || preload->integer == 0))
+	{
+		// This mode intentionally ignores the scripted camera lock. The level
+		// script keeps advancing, while Minecraft owns the live player and view.
+		player_locked = qfalse;
+		return in_camera;
+	}
 	const std::uint64_t now = GetTickCount64();
+	if (!in_camera)
+	{
+		unlockedCameraSince = 0;
+		sawLockedScriptedCamera = false;
+	}
+	else if (player_locked)
+	{
+		// Scripted level cinematics lock the native player while their camera owns
+		// the view. Remember that fact instead of guessing from fades or map state.
+		sawLockedScriptedCamera = true;
+		unlockedCameraSince = 0;
+	}
 	// The engine publishes an explicit falling edge for cinematic ownership.
 	// Unlike cvar/state inference, this event cannot be missed by the game DLL
 	// during fades or map-transition callbacks.
@@ -1315,6 +1377,25 @@ bool JKCraft_ShouldReleaseStaleCamera()
 	{
 		recoveringSkippedCinematic = true;
 		return true;
+	}
+	// Some Raven scripts (notably the natural end of yavin1b's introduction)
+	// unlock the player but leave the client-camera bit set. That produces the
+	// split view where Minecraft is live while the screen stays behind native
+	// Jaden. Only arm this recovery after observing the same camera with the
+	// player locked, so ordinary surveillance/view-entity cameras are untouched.
+	if (in_camera && sawLockedScriptedCamera && !player_locked && !remoteView &&
+		(!preload || preload->integer == 0))
+	{
+		if (!unlockedCameraSince) unlockedCameraSince = now;
+		if (now >= unlockedCameraSince + 500)
+		{
+			recoveringSkippedCinematic = true;
+			return true;
+		}
+	}
+	else if (!in_camera || player_locked || remoteView)
+	{
+		unlockedCameraSince = 0;
 	}
 	// Natural level cinematics can finish through a fade/script transition that
 	// clears the engine-facing cvar without calling CGCam_Disable in the game DLL.
