@@ -2107,7 +2107,8 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		|| (cg.snap->ps.weapon == WP_SABER || cg.snap->ps.weapon == WP_MELEE) ));
 	// Jedi Academy normally forces saber/melee into third person. JKCraft renders and aims
 	// through Minecraft, so the native game must keep the authoritative first-person view.
-	if (JKCraft_ForceFirstPerson())
+	const qboolean jkcraftGameplayCamera = JKCraft_ForceFirstPerson() ? qtrue : qfalse;
+	if (jkcraftGameplayCamera)
 	{
 		cg.renderingThirdPerson = qfalse;
 	}
@@ -2126,13 +2127,16 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		CGCam_Disable();
 	}
 	JKCraft_PublishCameraDebug();
-	if ( in_camera )
+	if ( in_camera && !jkcraftGameplayCamera )
 	{
 		// The camera takes over the view
 		CGCam_RenderScene();
 	}
 	else
 	{
+		// JKCraft may deliberately render gameplay while the native cinematic script
+		// fast-forwards in the background. Keep in_camera alive for the script, but
+		// never let it expose native Jaden or steal the visible Minecraft camera.
 		//Finish any fading that was happening
 		CGCam_UpdateFade();
 		// build cg.refdef

@@ -399,6 +399,18 @@ if(BuildSPEngine OR BuildJK2SPEngine)
 			set(SPEngineFiles ${SPEngineFiles} ${SPEngineWin32Files})
 			
 			add_executable(${ProjectName} WIN32 ${SPEngineFiles})
+			# JKCraft's SP client remains 32-bit for compatibility with the original
+			# game DLLs. On 64-bit Windows, Large Address Aware raises its virtual
+			# address ceiling from 2 GiB to 4 GiB and prevents intermittent failures
+			# when the renderer needs a large contiguous temporary image workspace
+			# after several map transitions.
+			if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+				if(MSVC)
+					set_property(TARGET ${ProjectName} APPEND_STRING PROPERTY LINK_FLAGS " /LARGEADDRESSAWARE")
+				elseif(MINGW)
+					set_property(TARGET ${ProjectName} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--large-address-aware")
+				endif()
+			endif()
 			if(UseInternalSDL2)
 				if(CMAKE_SIZEOF_VOID_P EQUAL 4)
 					set(SPEngineExtraInstallFiles

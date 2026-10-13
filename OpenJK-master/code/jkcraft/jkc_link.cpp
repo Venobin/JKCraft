@@ -1215,33 +1215,89 @@ namespace jkcraft
 			vec3_t bodyPoint;
 			VectorCopy(feetPoint, bodyPoint);
 			bodyPoint[2] = static_cast<float>((playerY + 0.90) * scale);
+			vec3_t waistPoint;
+			VectorCopy(feetPoint, waistPoint);
+			waistPoint[2] = static_cast<float>((playerY + 0.45) * scale);
 			vec3_t headPoint;
 			VectorCopy(feetPoint, headPoint);
 			headPoint[2] = static_cast<float>((playerY + 1.55) * scale);
-			// A single wet point at the feet is frequently a thin BSP water/clip overlap and
-			// must not put Minecraft into swimming physics while the player is on dry ground.
-			// Requiring both torso and head keeps real submersion, but rejects those false
-			// positives that caused 0.005-block/tick "levitating" descents.
-			const bool playerInWater = (CM_PointContents(bodyPoint, 0) & CONTENTS_WATER) != 0 &&
-				(CM_PointContents(headPoint, 0) & CONTENTS_WATER) != 0;
-			const bool playerInLava = (CM_PointContents(feetPoint, 0) & CONTENTS_LAVA) != 0 ||
-				(CM_PointContents(bodyPoint, 0) & CONTENTS_LAVA) != 0;
-			if (!playerInWater && !playerInLava)
+			// Use the server's authoritative contents query.  In addition to the main
+			// BSP it includes inline/dynamic brush models, which CM_PointContents(0)
+			// alone misses on several single-player maps.
+			const int feetContents = SV_PointContents(feetPoint, ENTITYNUM_NONE);
+			const int waistContents = SV_PointContents(waistPoint, ENTITYNUM_NONE);
+			const int bodyContents = SV_PointContents(bodyPoint, ENTITYNUM_NONE);
+			const int headContents = SV_PointContents(headPoint, ENTITYNUM_NONE);
+			// Point tests can land exactly on a BSP brush seam.  Probe the occupied
+			// lower-body volume as well so a fully submerged Minecraft player cannot be
+			// missed merely because its centre line lies on that seam.
+			const vec3_t fluidMins{
+				static_cast<float>(-0.28 * scale),
+				static_cast<float>(-0.28 * scale),
+				static_cast<float>(0.35 * scale)};
+			const vec3_t fluidMaxs{
+				static_cast<float>(0.28 * scale),
+				static_cast<float>(0.28 * scale),
+				static_cast<float>(1.60 * scale)};
+			trace_t fluidOverlap{};
+			SV_Trace(&fluidOverlap, feetPoint, fluidMins, fluidMaxs, feetPoint,
+				ENTITYNUM_NONE, CONTENTS_WATER | CONTENTS_SLIME | CONTENTS_LAVA);
+			const int overlapContents = (fluidOverlap.startsolid || fluidOverlap.allsolid)
+				? fluidOverlap.contents : 0;
+
+			// Some Raven water volumes meet on a leaf/brush boundary.  A point or
+			// stationary-box test at that exact boundary may report dry even though a
+			// vertical contents trace clearly crosses the pool surface.  Use that surface
+			// as a final entry test.  The solid pool bottom prevents this fallback from
+			// classifying positions below the volume as swimmable in normal map geometry.
+			vec3_t columnStart, columnEnd;
+			VectorCopy(feetPoint, columnStart);
+			VectorCopy(feetPoint, columnEnd);
+			columnStart[2] = static_cast<float>((playerY + 32.0) * scale);
+			columnEnd[2] = static_cast<float>((playerY - 32.0) * scale);
+			trace_t columnFluid{};
+			const vec3_t zero = {0.0f, 0.0f, 0.0f};
+			SV_Trace(&columnFluid, columnStart, zero, zero, columnEnd, ENTITYNUM_NONE,
+				CONTENTS_WATER | CONTENTS_SLIME | CONTENTS_LAVA);
+			const bool columnHit = columnFluid.fraction < 1.0f && !columnFluid.startsolid;
+			const double columnSurface = columnHit
+				? static_cast<double>(columnFluid.endpos[2]) / scale : -1.0e30;
+			const bool belowColumnSurface = columnHit && columnSurface > playerY + 0.35;
+			// A lone wet point at the feet is frequently only a thin BSP water/clip
+			// overlap, so require water to reach the lower body as well.  Requiring the
+			// head here was too strict: ordinary waist/chest-deep pools (notably yavin2)
+			// never published their fluid grid and Minecraft therefore walked on the
+			// bottom.  Once this gate opens, Minecraft's own per-cell fluid checks decide
+			// whether the player is wading, floating or fully swimming.
+			const int waterMask = CONTENTS_WATER | CONTENTS_SLIME;
+			const bool playerInWater = ((feetContents & waterMask) != 0 &&
+				(waistContents & waterMask) != 0) ||
+				(overlapContents & waterMask) != 0 ||
+				(belowColumnSurface && (columnFluid.contents & waterMask) != 0);
+			const bool playerInLava = (feetContents & CONTENTS_LAVA) != 0 ||
+				(waistContents & CONTENTS_LAVA) != 0 ||
+				(bodyContents & CONTENTS_LAVA) != 0 ||
+				(headContents & CONTENTS_LAVA) != 0 ||
+				(overlapContents & CONTENTS_LAVA) != 0 ||
+				(belowColumnSurface && (columnFluid.contents & CONTENTS_LAVA) != 0);
+			// Do not gate publication on the point tests above.  Several JA maps use
+			// water brushes whose contents are only discovered by a vertical trace; if
+			// the grid is withheld until the player is already reported wet, Minecraft
+			// can never discover the fluid and simply walks along the pool bottom.
+			// Scanning is cheap here: the 16x16 grid is rebuilt only after crossing a
+			// four-block boundary, and empty columns remain marked as dry.
+			if ((playerInWater || playerInLava) && !lastPlayerInWater)
 			{
-				if (lastPlayerInWater || lastWaterWorldId != 0)
-				{
-					ClearWaterGrid();
-					Com_DPrintf("JKCraft: player left Jedi Academy fluid\n");
-				}
-				lastPlayerInWater = false;
-				lastPlayerInLava = false;
-				return;
+				Com_Printf("JKCraft: player entered Jedi Academy %s at %.2f %.2f %.2f "
+					"(feet=0x%X waist=0x%X overlap=0x%X surface=%.2f)\n",
+					playerInLava ? "lava" : "water", playerX, playerY, playerZ,
+					feetContents, waistContents, overlapContents, columnSurface);
 			}
-			if (!lastPlayerInWater)
+			if (!playerInWater && !playerInLava && lastPlayerInWater)
 			{
-				Com_DPrintf("JKCraft: player entered Jedi Academy %s\n", playerInLava ? "lava" : "water");
+				Com_DPrintf("JKCraft: player left Jedi Academy fluid\n");
 			}
-			lastPlayerInWater = true;
+			lastPlayerInWater = playerInWater || playerInLava;
 			// The 16x16 cache already covers a large area. Move it in four-block steps
 			// instead of rebuilding 256 water traces for every single block walked.
 			constexpr int kWaterGridStep = 4;
@@ -1261,7 +1317,6 @@ namespace jkcraft
 			grid->originX = originX;
 			grid->originZ = originZ;
 			grid->worldId = worldId;
-			const vec3_t zero = {0.0f, 0.0f, 0.0f};
 			unsigned found = 0;
 			for (unsigned z = 0; z < protocol::kWaterGridSize; ++z)
 			{
@@ -1273,7 +1328,8 @@ namespace jkcraft
 					start[2] = static_cast<float>((playerY + 32.0) * scale);
 					end[2] = static_cast<float>((playerY - 32.0) * scale);
 					trace_t trace{};
-					CM_BoxTrace(&trace, start, end, zero, zero, 0, CONTENTS_WATER | CONTENTS_LAVA);
+					SV_Trace(&trace, start, zero, zero, end, ENTITYNUM_NONE,
+						CONTENTS_WATER | CONTENTS_SLIME | CONTENTS_LAVA);
 					float surface = -3.4e38f;
 					if (trace.fraction < 1.0f && !trace.startsolid)
 					{
@@ -1348,12 +1404,10 @@ namespace jkcraft
 			// cinematics continue running in the background. Remote-view consoles
 			// remain JA-owned so mission interactions using them are not broken.
 			const bool scriptedCinematic = cinematicState && cinematicState->integer != 0;
-			const bool autoSkipNow = autoSkipCinematics && autoSkipCinematics->integer != 0;
-			// While the native fast-forward skip is running, preserve cinematic
-			// ownership long enough for its mission scripts to execute. Forced
-			// gameplay remains the fallback immediately after the camera releases.
-			const bool forceGameplayNow = forceGameplay && forceGameplay->integer != 0 &&
-				!(autoSkipNow && scriptedCinematic);
+			// Native fast-forward still runs the mission script in the background, but
+			// forced gameplay must win immediately. Otherwise a stuck jkc_cinematic bit
+			// blocks input forever and exposes both the Minecraft model and native Jaden.
+			const bool forceGameplayNow = forceGameplay && forceGameplay->integer != 0;
 			const bool cinematic = active && (remoteView || (!forceGameplayNow &&
 				(scriptedCinematic ||
 					CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy())));
@@ -1708,10 +1762,7 @@ void Frame()
 	bool MinecraftOwnsInput()
 	{
 #if defined(_WIN32)
-		const bool scriptedCinematic = cinematicState && cinematicState->integer != 0;
-		const bool autoSkipNow = autoSkipCinematics && autoSkipCinematics->integer != 0;
-		const bool forceGameplayNow = forceGameplay && forceGameplay->integer != 0 &&
-			!(autoSkipNow && scriptedCinematic);
+		const bool forceGameplayNow = forceGameplay && forceGameplay->integer != 0;
 		if (!enabled || !enabled->integer || !header || cls.state != CA_ACTIVE ||
 			(cl.frame.valid && cl.frame.ps.viewEntity > 0 &&
 				cl.frame.ps.viewEntity < ENTITYNUM_WORLD) ||

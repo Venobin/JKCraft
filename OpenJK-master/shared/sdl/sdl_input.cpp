@@ -842,6 +842,7 @@ static void IN_ProcessEvents( void )
 #ifdef _JK2EXE
 	static bool keyToMinecraft[SDL_NUM_SCANCODES]{};
 	static bool keyToOpenJK[SDL_NUM_SCANCODES]{};
+	static bool directHostButton[SDL_NUM_SCANCODES]{};
 	static bool mouseToMinecraft[8]{};
 	static bool mouseToOpenJK[8]{};
 	static bool lastKeyToMinecraft = false;
@@ -869,8 +870,12 @@ static void IN_ProcessEvents( void )
 			}
 			if (previousMinecraftOwns && now - minecraftInputLostAt >= 250)
 			{
+				if (directHostButton[SDL_SCANCODE_R]) Cbuf_AddText("-use\n");
+				if (directHostButton[SDL_SCANCODE_G]) Cbuf_AddText("-useforce\n");
 				jkcraft::PushInput(jkcraft::protocol::kInputReleaseAll, 0);
 				memset(keyToMinecraft, 0, sizeof(keyToMinecraft));
+				memset(keyToOpenJK, 0, sizeof(keyToOpenJK));
+				memset(directHostButton, 0, sizeof(directHostButton));
 				previousMinecraftOwns = false;
 			}
 		}
@@ -881,6 +886,8 @@ static void IN_ProcessEvents( void )
 			{
 				jkcraft::PushInput(jkcraft::protocol::kInputReleaseAll, 0);
 				memset(keyToMinecraft, 0, sizeof(keyToMinecraft));
+				memset(keyToOpenJK, 0, sizeof(keyToOpenJK));
+				memset(directHostButton, 0, sizeof(directHostButton));
 				const bool minecraftScreen = jkcraft::MinecraftScreenOpen();
 				int keyCount = 0;
 				const Uint8* held = SDL_GetKeyboardState(&keyCount);
@@ -917,27 +924,49 @@ static void IN_ProcessEvents( void )
 					const bool minecraftOwns = jkcraft::MinecraftOwnsInput();
 					const bool minecraftScreen = jkcraft::MinecraftScreenOpen();
 					// R operates JA doors/panels and G uses the selected Force power.
+					// Use physical scancodes here: translated character keys are lowercase
+					// with the normal layout and therefore never equal A_CAP_R/A_CAP_G.
 					// Menus keep both keys so inventory/search fields still work.
+					const SDL_Scancode scanCode = e.key.keysym.scancode;
 					const bool hostKey = key == A_CONSOLE || key == A_F9 || key == A_F10 ||
 						key == A_F11 || key == A_F12 ||
-						((key == A_ESCAPE || key == A_CAP_R || key == A_CAP_G || key == A_TAB) && !minecraftScreen);
+						((scanCode == SDL_SCANCODE_ESCAPE || scanCode == SDL_SCANCODE_R ||
+							scanCode == SDL_SCANCODE_G || scanCode == SDL_SCANCODE_TAB) && !minecraftScreen);
 					const int scan = static_cast<int>(e.key.keysym.scancode);
+					const bool directHost = minecraftOwns && !minecraftScreen &&
+						(scanCode == SDL_SCANCODE_R || scanCode == SDL_SCANCODE_G);
 					lastKeyToMinecraft = minecraftOwns && !hostKey;
-					lastKeyToOpenJK = !minecraftOwns || hostKey;
+					lastKeyToOpenJK = (!minecraftOwns || hostKey) && !directHost;
 					if (scan >= 0 && scan < SDL_NUM_SCANCODES)
 					{
 						keyToMinecraft[scan] = lastKeyToMinecraft;
 						keyToOpenJK[scan] = lastKeyToOpenJK;
+						directHostButton[scan] = directHost;
 					}
-					if (lastKeyToMinecraft)
+					if (directHost)
+					{
+						// Execute the two JA gameplay actions directly.  Routing them through a
+						// synthetic key event depended on the user's saved bind surviving command
+						// line parsing; in packaged clients G was commonly left unbound.
+						if (!e.key.repeat)
+						{
+							Cbuf_AddText(scanCode == SDL_SCANCODE_R ? "+use\n" : "+useforce\n");
+							Com_Printf("JKCraft: activated %s from %c\n",
+								scanCode == SDL_SCANCODE_R ? "use" : "selected Force power",
+								scanCode == SDL_SCANCODE_R ? 'R' : 'G');
+						}
+					}
+					else if (lastKeyToMinecraft)
 					{
 						jkcraft::PushInput(jkcraft::protocol::kInputKey,
 							static_cast<std::uint16_t>(e.key.keysym.scancode), 1);
 					}
-					else if (minecraftOwns && !minecraftScreen && (key == A_CAP_R || key == A_CAP_G))
+					else if (minecraftOwns && !minecraftScreen &&
+						(scanCode == SDL_SCANCODE_R || scanCode == SDL_SCANCODE_G))
 					{
-						Com_Printf("JKCraft: routed %c to OpenJK (%s)\n", key,
-							key == A_CAP_R ? "use" : "selected Force power");
+						Com_Printf("JKCraft: routed %c to OpenJK (%s)\n",
+							scanCode == SDL_SCANCODE_R ? 'R' : 'G',
+							scanCode == SDL_SCANCODE_R ? "use" : "selected Force power");
 					}
 				}
 #else
@@ -973,6 +1002,11 @@ static void IN_ProcessEvents( void )
 					const int scan = static_cast<int>(e.key.keysym.scancode);
 					const bool toMinecraft = scan >= 0 && scan < SDL_NUM_SCANCODES && keyToMinecraft[scan];
 					const bool toOpenJK = scan >= 0 && scan < SDL_NUM_SCANCODES && keyToOpenJK[scan];
+					const bool directHost = scan >= 0 && scan < SDL_NUM_SCANCODES && directHostButton[scan];
+					if (directHost)
+					{
+						Cbuf_AddText(e.key.keysym.scancode == SDL_SCANCODE_R ? "-use\n" : "-useforce\n");
+					}
 					if (toMinecraft)
 					{
 						jkcraft::PushInput(jkcraft::protocol::kInputKey,
@@ -982,6 +1016,7 @@ static void IN_ProcessEvents( void )
 					{
 						keyToMinecraft[scan] = false;
 						keyToOpenJK[scan] = false;
+						directHostButton[scan] = false;
 					}
 					lastKeyToMinecraft = false;
 					lastKeyToOpenJK = toOpenJK;

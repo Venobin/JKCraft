@@ -587,14 +587,10 @@ namespace
 		{
 			autoSkipCinematics = gi.cvar("jkc_auto_skip_cinematics", "1", CVAR_ARCHIVE);
 		}
-		// During native fast-forward the scripted camera must retain ownership;
-		// otherwise its completion/skip script can be interrupted before it opens
-		// doors, spawns actors or advances the mission objective.
-		if (autoSkipCinematics->integer != 0 && in_camera)
-		{
-			return true;
-		}
 		jkcraft::protocol::MinecraftState minecraft{};
+		// Forced gameplay owns the live camera even while Jedi Academy fast-forwards
+		// a cutscene in the background. The script and in_camera state keep running,
+		// but they may no longer expose native Jaden or block Minecraft input.
 		const bool forceGameplayNow = forceGameplay->integer != 0 && !remoteView &&
 			(!preloading || preloading->integer == 0) && ReadMinecraftState(minecraft) &&
 			(minecraft.flags & jkcraft::protocol::kMinecraftInWorld) &&
@@ -1383,7 +1379,7 @@ bool JKCraft_ShouldReleaseStaleCamera()
 	// split view where Minecraft is live while the screen stays behind native
 	// Jaden. Only arm this recovery after observing the same camera with the
 	// player locked, so ordinary surveillance/view-entity cameras are untouched.
-	if (in_camera && sawLockedScriptedCamera && !player_locked && !remoteView &&
+	if (in_camera && !nativeSkipActive && sawLockedScriptedCamera && !player_locked && !remoteView &&
 		(!preload || preload->integer == 0))
 	{
 		if (!unlockedCameraSince) unlockedCameraSince = now;
@@ -1402,7 +1398,7 @@ bool JKCraft_ShouldReleaseStaleCamera()
 	// This is the exact split state observed in the live client: in_camera stayed
 	// true while jkc_cinematic and both viewEntity fields were already zero. Do
 	// not depend on the concurrently-written HostState to repair this condition.
-	if (in_camera && !EngineCinematicActiveRelaxed() &&
+	if (in_camera && !nativeSkipActive && !EngineCinematicActiveRelaxed() &&
 		(!preload || preload->integer == 0))
 	{
 		if (!cameraFlagMismatchSince) cameraFlagMismatchSince = now;

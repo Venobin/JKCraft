@@ -12,8 +12,6 @@ JKCraft — экспериментальный одиночный клиент, 
 
 В папке клиента запускайте `JKCraft.cmd`. По умолчанию локальный ник — `Jaden`; его можно изменить в лаунчере. Во время игры кнопка становится красной «ЗАКРЫТЬ». Закрытие OpenJK завершает скрытый Minecraft, но лаунчер остаётся открытым для следующего запуска; закрытие лаунчера завершает оба запущенных им игровых процесса. Сохранения и настройки лежат в `GameResources` и `UserData` внутри клиента — сохраняйте эти папки при обновлении.
 
-В обновлённой сборке 0.1.3 внутриигровые сюжетные катсцены временно пропускаются автоматически штатным механизмом Jedi Academy. Это обход зависания камеры после некоторых сцен; вступительные видеоролики до загрузки уровня и камеры наблюдения на игровых консолях не отключены.
-
 ## Исходники
 
 | Путь | Содержимое |
@@ -41,8 +39,6 @@ Current status: **0.1.3 alpha, Windows, single-player**. This is a playtest buil
 Windows client: **[download JKCraft 0.1.3 Alpha](https://github.com/Venobin/JKCraft/releases/tag/v0.1.3-alpha)**. The archive is attached to the GitHub Release, not stored in the source tree. Extract it completely and follow its `INSTALLATION_EN.txt` instructions. You must provide your own Jedi Academy game assets. The first launch downloads the Minecraft/Fabric components and dependencies into a local cache.
 
 Run `JKCraft.cmd` from the extracted client folder. The default offline player name is `Jaden`, and you can change it in the launcher. While the game is running, the Play button becomes a red Close button. Closing OpenJK stops its background Minecraft process but leaves the launcher open; closing the launcher stops both game processes it started. Keep the client's `GameResources` and `UserData` folders when updating if you want to preserve saves and settings.
-
-The updated 0.1.3 build temporarily skips in-level story cutscenes through Jedi Academy's native skip mechanism. This is a workaround for the camera getting stuck after certain scenes; pre-level intro videos and surveillance cameras activated from gameplay consoles remain enabled.
 
 ### Source tree
 
