@@ -28,6 +28,15 @@ project(${ProjectName})
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
+# JKCraft Windows releases must run on machines that do not have the Visual
+# Studio development runtime or the VC++ Redistributable installed.  Keep the
+# MSVC runtime inside each x86 binary by default.  Callers may still override
+# CMAKE_MSVC_RUNTIME_LIBRARY explicitly when integrating OpenJK elsewhere.
+if(MSVC AND NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+		CACHE STRING "MSVC runtime used by JKCraft/OpenJK")
+endif()
+
 #=============================================================================
 #
 # Customizable options

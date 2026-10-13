@@ -5,7 +5,7 @@
 Компоненты:
 
 1. Minecraft-мод: `SkyCraft-main/fabric/`, Java 25 и Gradle Wrapper (`gradlew.bat`). Версии Minecraft, Fabric Loader и Fabric API закреплены в `gradle.properties`. Для сборки используйте `gradlew.bat build` из этой папки с настроенным `JAVA_HOME`.
-2. OpenJK: `OpenJK-master/`, CMake и компилятор Visual C++ с целевой архитектурой x86. В текущем дереве изменения JKCraft находятся в исходниках OpenJK и должны собираться вместе с ним; отдельный DLL из старой версии клиента не подойдёт.
+2. OpenJK: `OpenJK-master/`, CMake и компилятор Visual C++ с целевой архитектурой x86. Выпуск собирайте с `CMAKE_BUILD_TYPE=Release`; дерево JKCraft по умолчанию статически встраивает MSVC runtime, чтобы готовый клиент не требовал Visual Studio или Visual C++ Redistributable. В текущем дереве изменения JKCraft находятся в исходниках OpenJK и должны собираться вместе с ним; отдельный DLL из старой версии клиента не подойдёт.
 3. Лаунчер: `launcher/src/JKCraftLauncher.java`. Для него нужна Java 17+ (автономный клиент включает Java 25). `launcher/Build-Launcher.ps1` собирает JAR с локальным Java SDK в `.tools/`. Скрипт создания выпуска копирует этот JAR и готовые компоненты в папку клиента.
 
 После изменения `OpenJK-master/code/jkcraft/jkc_protocol.h` пересобирайте **все три** компонента OpenJK: `openjk_sp.x86.exe`, `jagamex86.dll` и `rdsp-vanilla_x86.dll`. Старый DLL рендерера может оставить Minecraft невидимым даже при рабочей связи и управлении.
@@ -19,7 +19,7 @@ This public repository contains source code, not a portable game build. Releases
 Components:
 
 1. **Minecraft mod:** `SkyCraft-main/fabric/` requires Java 25 and the Gradle Wrapper (`gradlew.bat`). Minecraft, Fabric Loader and Fabric API versions are pinned in `gradle.properties`. From that directory, run `gradlew.bat build` with `JAVA_HOME` pointing to Java 25.
-2. **OpenJK:** Build `OpenJK-master/` with CMake and an x86 Visual C++ toolchain. JKCraft's OpenJK changes are part of this source tree and must be compiled together. A DLL from an older client build is not interchangeable.
+2. **OpenJK:** Build `OpenJK-master/` with CMake, `CMAKE_BUILD_TYPE=Release`, and an x86 Visual C++ toolchain. The JKCraft tree statically links the MSVC runtime by default so the packaged client does not require Visual Studio or the Visual C++ Redistributable. JKCraft's OpenJK changes are part of this source tree and must be compiled together. A DLL from an older client build is not interchangeable.
 3. **Launcher:** `launcher/src/JKCraftLauncher.java` requires Java 17 or later; the standalone client includes Java 25. `launcher/Build-Launcher.ps1` builds its JAR using a local Java SDK in `.tools/`. The release script copies that JAR and the compiled components into a client folder.
 
 If you change `OpenJK-master/code/jkcraft/jkc_protocol.h`, rebuild **all three** OpenJK components: `openjk_sp.x86.exe`, `jagamex86.dll` and `rdsp-vanilla_x86.dll`. Keeping an old renderer DLL can make Minecraft invisible even when the bridge and controls are working.
