@@ -60,3 +60,7 @@ __pycache__/
 Thumbs.db
 Desktop.ini
 .DS_Store
+# Internal planning and release drafts stay local; publish release notes on GitHub Releases.
+/RELEASE_NOTES*.md
+/ROADMAP*.md
+/JKCRAFT_STATUS.md
