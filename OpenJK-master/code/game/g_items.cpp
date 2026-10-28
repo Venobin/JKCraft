@@ -790,7 +790,7 @@ void Touch_Item (gentity_t *ent, gentity_t *other, trace_t *trace) {
 	// JA's duplicate health/armor counters must not block its pickups.
 	const bool minecraftVitalPickup = other->s.number == 0 && ent->item &&
 		(ent->item->giType == IT_HEALTH || ent->item->giType == IT_ARMOR) &&
-		JKCraft_PlayerPuppeted();
+		JKCraft_PlayerUsesMinecraftVitals();
 	const int vitalKind = ent->item && ent->item->giType == IT_HEALTH ? 1 : 2;
 	if ( minecraftVitalPickup ? !JKCraft_CanPickUpItem(vitalKind)
 		: !BG_CanItemBeGrabbed( &ent->s, &other->client->ps ) ) {
@@ -1658,6 +1658,15 @@ void ItemUse_Bacta(gentity_t *ent)
 	if (ent->health >= ent->client->ps.stats[STAT_MAX_HEALTH] || !ent->client->ps.inventory[INV_BACTA_CANISTER] )
 	{
 		return;
+	}
+	if (ent->s.number == 0 && JKCraft_PlayerUsesMinecraftVitals())
+	{
+		const int missing = ent->client->ps.stats[STAT_MAX_HEALTH] - ent->health;
+		const int restored = missing < MAX_BACTA_HEAL_AMOUNT ? missing : MAX_BACTA_HEAL_AMOUNT;
+		if (!JKCraft_CanPickUpItem(1) || !JKCraft_ForwardPickup(1, restored))
+		{
+			return;
+		}
 	}
 
 	ent->health += MAX_BACTA_HEAL_AMOUNT;

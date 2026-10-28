@@ -1,6 +1,7 @@
 package dev.skycraft.world;
 
 import dev.skycraft.SkyCraft;
+import dev.skycraft.link.Proto;
 import dev.skycraft.link.SkyLink;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -11,10 +12,10 @@ import java.util.Set;
 import net.minecraft.core.BlockPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -93,26 +94,32 @@ public final class MapBlockReset {
 				cells.add(new SkyLink.MinecraftCell(pos.getX(), pos.getY(), pos.getZ(), 1));
 			}
 		}
-		// Reserve wall slots, then choose the closest liquid cells instead of filling
-		// the table with the lowest layer of a large pool.
-		ArrayList<SkyLink.MinecraftCell> liquids = new ArrayList<>();
+		// Reserve wall slots, then choose the closest environmental cells instead of
+		// filling the table with the lowest layer of a large pool.  These cells drive
+		// native Jedi/NPC swimming, fire, contact damage and slowing effects.
+		ArrayList<SkyLink.MinecraftCell> environment = new ArrayList<>();
 		for (int y = center.getY() - 3; y <= center.getY() + 3; y++) {
 			for (int z = center.getZ() - 4; z <= center.getZ() + 4; z++) {
 				for (int x = center.getX() - 4; x <= center.getX() + 4; x++) {
 					BlockPos pos = new BlockPos(x, y, z);
 					if (!level.hasChunkAt(pos)) continue;
 					var state = level.getBlockState(pos);
-					if (!state.getCollisionShape(level, pos).isEmpty()) continue;
 					var fluid = state.getFluidState();
-					int kind = fluid.is(FluidTags.LAVA) ? 3 : fluid.is(FluidTags.WATER) ? 2 : 0;
-					if (kind != 0) liquids.add(new SkyLink.MinecraftCell(x, y, z, kind));
+					int kind = fluid.is(FluidTags.LAVA) ? Proto.CELL_LAVA
+						: fluid.is(FluidTags.WATER) ? Proto.CELL_WATER
+						: state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE) ||
+							state.is(Blocks.CAMPFIRE) || state.is(Blocks.SOUL_CAMPFIRE) ? Proto.CELL_FIRE
+						: state.is(Blocks.CACTUS) || state.is(Blocks.SWEET_BERRY_BUSH) ||
+							state.is(Blocks.WITHER_ROSE) || state.is(Blocks.MAGMA_BLOCK) ? Proto.CELL_HAZARD
+						: state.is(Blocks.COBWEB) || state.is(Blocks.POWDER_SNOW) ? Proto.CELL_SLOW : 0;
+					if (kind != 0) environment.add(new SkyLink.MinecraftCell(x, y, z, kind));
 				}
 			}
 		}
-		liquids.sort(Comparator.comparingDouble(c -> center.distSqr(new BlockPos(c.x(), c.y(), c.z()))));
-		for (SkyLink.MinecraftCell liquid : liquids) {
+		environment.sort(Comparator.comparingDouble(c -> center.distSqr(new BlockPos(c.x(), c.y(), c.z()))));
+		for (SkyLink.MinecraftCell environmentalCell : environment) {
 			if (cells.size() >= 128) break;
-			cells.add(liquid);
+			cells.add(environmentalCell);
 		}
 		cells.sort(Comparator.comparingInt(SkyLink.MinecraftCell::kind)
 			.thenComparingInt(SkyLink.MinecraftCell::x).thenComparingInt(SkyLink.MinecraftCell::y)

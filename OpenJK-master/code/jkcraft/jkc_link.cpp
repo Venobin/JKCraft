@@ -1668,8 +1668,10 @@ namespace jkcraft
 				protocol::MinecraftState state{};
 				if (ReadMinecraftState(state) && (state.flags & protocol::kMinecraftInWorld))
 				{
-					Com_Printf("JKCraft: Minecraft player %.3f %.3f %.3f, yaw %.1f, flags 0x%X\n",
-						state.x, state.y, state.z, state.yaw, state.flags);
+					Com_Printf("JKCraft: Minecraft player %.3f %.3f %.3f, yaw %.1f, flags 0x%X, control %s #%u\n",
+						state.x, state.y, state.z, state.yaw, state.flags,
+						state.controlMode == protocol::kControlJedi ? "Jedi" : "Minecraft",
+						state.controlSequence);
 				}
 			}
 			else
@@ -1774,7 +1776,8 @@ void Frame()
 			return false;
 		}
 		protocol::MinecraftState state{};
-		return ReadMinecraftState(state) && (state.flags & protocol::kMinecraftInWorld);
+		return ReadMinecraftState(state) && (state.flags & protocol::kMinecraftInWorld) &&
+			state.controlMode == protocol::kControlMinecraft;
 #else
 		return false;
 #endif

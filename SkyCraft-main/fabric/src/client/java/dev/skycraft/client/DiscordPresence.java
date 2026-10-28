@@ -18,8 +18,8 @@ import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Discord Rich Presence: the player's Discord status shows SkyCraft (solo, hosting, or in a friend's
- * world), and while hosting it carries a Join button. A friend with SkyCraft running who clicks it
+ * Discord Rich Presence: the player's Discord status shows JKCraft (solo, hosting, or in a friend's
+ * world), and while hosting it carries a Join button. A friend with JKCraft running who clicks it
  * gets the host's e4mc link here, and joins exactly as with /join.
  *
  * <p>Talks to the Discord app on this PC over its local IPC pipe (\\.\pipe\discord-ipc-N) from one
@@ -27,8 +27,10 @@ import org.jspecify.annotations.Nullable;
  * a write on the same pipe. Without Discord running it quietly retries now and then.
  */
 public final class DiscordPresence {
-	// The SkyCraft application on Discord's developer portal (public; not a secret).
-	private static final String APP_ID = System.getProperty("skycraft.discordAppId", "1554889902309642280");
+	// Discord displays the application name associated with this ID. Use JKCraft's
+	// own public application ID; allow a local override or "0" to disable it.
+	private static final String APP_ID = System.getProperty("jkcraft.discordAppId",
+		System.getenv().getOrDefault("JKCRAFT_DISCORD_APP_ID", "1559943111260639333")).trim();
 	// e4mc's addresses, as it prints them in chat (visible, or only in its click-to-copy action).
 	private static final Pattern E4MC_LINK = Pattern.compile("[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.e4mc\\.link", Pattern.CASE_INSENSITIVE);
 	private static final int OP_HANDSHAKE = 0, OP_FRAME = 1, OP_CLOSE = 2, OP_PING = 3, OP_PONG = 4;
@@ -42,8 +44,8 @@ public final class DiscordPresence {
 	}
 
 	public static void start() {
-		if ("0".equals(APP_ID) || APP_ID.isBlank()) {
-			SkyCraft.LOG.info("JKCraft: Discord Rich Presence off (no application id)");
+		if (!APP_ID.matches("[0-9]{17,20}")) {
+			SkyCraft.LOG.info("JKCraft: Discord Rich Presence off (application ID disabled or invalid)");
 			return;
 		}
 		Thread thread = new Thread(DiscordPresence::run, "JKCraft Discord");
@@ -114,7 +116,7 @@ public final class DiscordPresence {
 				party.addProperty("id", "jkcraft-" + Integer.toHexString(joinable.hashCode()));
 				JsonArray size = new JsonArray();
 				size.add(Math.max(players, 1));
-				// A friend's world: SkyCraft hosts take 100 (IntegratedServerMixin); a guest can't ask.
+				// A friend's world: JKCraft hosts take 100 (IntegratedServerMixin); a guest can't ask.
 				size.add(server != null ? Math.max(server.getMaxPlayers(), players + 1) : Math.max(100, players + 1));
 				party.add("size", size);
 				activity.add("party", party);

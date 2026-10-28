@@ -5408,6 +5408,13 @@ extern cvar_t	*g_skippingcin;
 	Pmove( &pm );
 	pm.gent = 0;
 
+	// OpenJK's normal trace path can skip dynamically-created JKCraft cell
+	// entities for the native player. Resolve them explicitly while Jedi mode
+	// owns locomotion; Minecraft mode continues using Minecraft collision.
+	VectorCopy( pm.mins, ent->mins );
+	VectorCopy( pm.maxs, ent->maxs );
+	JKCraft_ResolveNativePlayerBlocks( ent, oldOrigin );
+
 	ProcessGenericCmd(ent, pm.cmd.generic_cmd);
 
 	// save results of pmove

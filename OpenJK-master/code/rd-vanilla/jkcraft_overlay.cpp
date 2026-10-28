@@ -95,6 +95,13 @@ namespace
 		return (Read32(&state->flags) & jkcraft::protocol::kMinecraftScreenOpen) != 0;
 	}
 
+	bool MinecraftControlsPlayer()
+	{
+		const auto* state = reinterpret_cast<const jkcraft::protocol::MinecraftState*>(
+			base + jkcraft::protocol::kMinecraftStateOffset);
+		return Read32(&state->controlMode) == jkcraft::protocol::kControlMinecraft;
+	}
+
 	bool ReadCursor(std::int32_t& x, std::int32_t& y)
 	{
 		const auto* cursor = reinterpret_cast<const jkcraft::protocol::HostCursor*>(
@@ -214,7 +221,8 @@ namespace
 void JKCraft_DrawOverlay()
 {
 #if defined(_WIN32)
-	if (!MinecraftReady() || !HostAllowsOverlay() || !UploadLatestFrame() || !texture)
+	if (!MinecraftReady() || !HostAllowsOverlay() || !MinecraftControlsPlayer() ||
+		!UploadLatestFrame() || !texture)
 	{
 		return;
 	}

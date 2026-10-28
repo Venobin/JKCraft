@@ -144,7 +144,7 @@ final class AvatarExporter implements SubmitNodeCollector {
 		this.atlas = atlas;
 		var player = minecraft.player;
 		Camera camera = minecraft.gameRenderer.mainCamera();
-		if (player == null || !camera.isDetached()) {
+		if (player == null || !dev.skycraft.client.SkyClient.minecraftControlsPlayer() || !camera.isDetached()) {
 			this.sendEmpty(Proto.REN_AVATAR, false);
 			return;
 		}

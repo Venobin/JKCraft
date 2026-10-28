@@ -1,4 +1,4 @@
-JKCraft 0.1.3 alpha
+JKCraft 0.1.4 alpha
 ===================
 
 Created by Venobin with AI-assisted development using Codex (OpenAI).

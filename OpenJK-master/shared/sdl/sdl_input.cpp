@@ -896,6 +896,7 @@ static void IN_ProcessEvents( void )
 				{
 					if (!held[scan]) continue;
 					const bool alwaysOpenJK = scan == SDL_SCANCODE_GRAVE ||
+						scan == SDL_SCANCODE_F6 ||
 						scan == SDL_SCANCODE_F9 || scan == SDL_SCANCODE_F10 ||
 						scan == SDL_SCANCODE_F11 || scan == SDL_SCANCODE_F12;
 					const bool gameplayOpenJK = !minecraftScreen &&
@@ -928,6 +929,7 @@ static void IN_ProcessEvents( void )
 					// with the normal layout and therefore never equal A_CAP_R/A_CAP_G.
 					// Menus keep both keys so inventory/search fields still work.
 					const SDL_Scancode scanCode = e.key.keysym.scancode;
+					const bool controlToggle = scanCode == SDL_SCANCODE_F6 && !minecraftScreen;
 					const bool hostKey = key == A_CONSOLE || key == A_F9 || key == A_F10 ||
 						key == A_F11 || key == A_F12 ||
 						((scanCode == SDL_SCANCODE_ESCAPE || scanCode == SDL_SCANCODE_R ||
@@ -935,15 +937,23 @@ static void IN_ProcessEvents( void )
 					const int scan = static_cast<int>(e.key.keysym.scancode);
 					const bool directHost = minecraftOwns && !minecraftScreen &&
 						(scanCode == SDL_SCANCODE_R || scanCode == SDL_SCANCODE_G);
-					lastKeyToMinecraft = minecraftOwns && !hostKey;
-					lastKeyToOpenJK = (!minecraftOwns || hostKey) && !directHost;
+					lastKeyToMinecraft = !controlToggle && minecraftOwns && !hostKey;
+					lastKeyToOpenJK = !controlToggle && (!minecraftOwns || hostKey) && !directHost;
 					if (scan >= 0 && scan < SDL_NUM_SCANCODES)
 					{
 						keyToMinecraft[scan] = lastKeyToMinecraft;
 						keyToOpenJK[scan] = lastKeyToOpenJK;
 						directHostButton[scan] = directHost;
 					}
-					if (directHost)
+					if (controlToggle)
+					{
+						if (!e.key.repeat)
+						{
+							jkcraft::PushInput(jkcraft::protocol::kInputToggleControl, 0);
+							Com_Printf("JKCraft: requested Minecraft/Jedi control-mode switch\n");
+						}
+					}
+					else if (directHost)
 					{
 						// Execute the two JA gameplay actions directly.  Routing them through a
 						// synthetic key event depended on the user's saved bind surviving command

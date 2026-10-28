@@ -3,7 +3,7 @@ param([string]$Destination)
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path -Parent $PSScriptRoot
 $releaseRoot = Join-Path $workspace 'releases'
-if (-not $Destination) { $Destination = Join-Path $releaseRoot 'JKCraft-0.1.3-alpha' }
+if (-not $Destination) { $Destination = Join-Path $releaseRoot 'JKCraft-0.1.4-alpha' }
 $Destination = [IO.Path]::GetFullPath($Destination)
 $releaseRoot = [IO.Path]::GetFullPath($releaseRoot)
 if (-not $Destination.StartsWith($releaseRoot + [IO.Path]::DirectorySeparatorChar,
@@ -20,7 +20,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Launcher build failed.' }
 $oldClient = Join-Path $workspace 'dist\JKCraft-0.1.2'
 $core = Join-Path $workspace 'SkyCraft-main\fabric'
 $source = Join-Path $workspace 'OpenJK-master'
-$openJkBuild = Join-Path $source 'build-jedicraft-ninja'
+$openJkBuild = Join-Path $source 'build-jedicraft-static-release'
 $assets = Join-Path $PSScriptRoot 'release_assets'
 $java = Join-Path $workspace '.tools\temurin-25\jdk-25.0.4.1+1'
 foreach ($required in @(
@@ -28,11 +28,34 @@ foreach ($required in @(
     (Join-Path $openJkBuild 'jagamex86.dll'),
     (Join-Path $openJkBuild 'rdsp-vanilla_x86.dll'),
     (Join-Path $oldClient 'mods\fabric-api-0.161.0+26.3.jar'),
-    (Join-Path $core 'build\libs\jkcraft-0.1.3.jar'),
+    (Join-Path $core 'build\libs\jkcraft-0.1.4.jar'),
     (Join-Path $java 'bin\java.exe')
 )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Required release input is missing: $required"
+    }
+}
+
+# A protocol layout change affects every shared-memory participant.  A stale
+# renderer does not crash or print a useful launcher error: it simply rejects
+# every Minecraft frame, which looks like the whole Minecraft layer vanished.
+# Refuse to package such a mixed build.
+$protocolSources = @(
+    (Join-Path $source 'code\jkcraft\jkc_protocol.h'),
+    (Join-Path $core 'src\main\java\dev\skycraft\link\Proto.java')
+)
+$protocolStamp = ($protocolSources | ForEach-Object {
+    (Get-Item -LiteralPath $_).LastWriteTimeUtc
+} | Sort-Object -Descending | Select-Object -First 1)
+$protocolArtifacts = @(
+    (Join-Path $openJkBuild 'openjk_sp.x86.exe'),
+    (Join-Path $openJkBuild 'jagamex86.dll'),
+    (Join-Path $openJkBuild 'rdsp-vanilla_x86.dll'),
+    (Join-Path $core 'build\libs\jkcraft-0.1.4.jar')
+)
+foreach ($artifact in $protocolArtifacts) {
+    if ((Get-Item -LiteralPath $artifact).LastWriteTimeUtc -lt $protocolStamp) {
+        throw "Shared-protocol artifact is stale and must be rebuilt: $artifact"
     }
 }
 
@@ -56,8 +79,8 @@ New-Item -ItemType Directory -Path (Join-Path $Destination 'mods'),
     (Join-Path $Destination 'GameResources\JediAcademy\GameData\base'),
     (Join-Path $Destination 'GameResources\Minecraft\GameData'),
     (Join-Path $Destination 'UserData') -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $core 'build\libs\jkcraft-0.1.3.jar') `
-    -Destination (Join-Path $Destination 'mods\jkcraft-0.1.3.jar')
+Copy-Item -LiteralPath (Join-Path $core 'build\libs\jkcraft-0.1.4.jar') `
+    -Destination (Join-Path $Destination 'mods\jkcraft-0.1.4.jar')
 Copy-Item -LiteralPath (Join-Path $oldClient 'mods\fabric-api-0.161.0+26.3.jar') `
     -Destination (Join-Path $Destination 'mods\fabric-api-0.161.0+26.3.jar')
 Copy-Item -LiteralPath $java -Destination (Join-Path $Destination 'Runtime\Java25') -Recurse

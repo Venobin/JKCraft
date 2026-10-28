@@ -78,7 +78,9 @@ public final class MobDirectGround {
 			// Items are smaller and can cross farther in one async request/response cycle.
 			memory.set(JAVA_FLOAT, record + 28, entity instanceof ItemEntity ? 1.25F : 0.75F);
 			memory.set(JAVA_FLOAT, record + 32, Float.NaN);
-			memory.set(JAVA_INT, record + 36, entity instanceof Enemy ? MOB_REQUEST_HOSTILE : 0);
+			int flags = entity instanceof Mob ? MOB_REQUEST_LIVING : 0;
+			if (entity instanceof Enemy) flags |= MOB_REQUEST_HOSTILE;
+			memory.set(JAVA_INT, record + 36, flags);
 		}
 		SkyLink.SkyState state = new SkyLink.SkyState();
 		if (!SkyLink.readSkyState(state) || !state.directCollision() || !state.inGame() || state.loading() || state.cinematic()) {

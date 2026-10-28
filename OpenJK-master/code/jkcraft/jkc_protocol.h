@@ -16,7 +16,7 @@ namespace jkcraft
 	namespace protocol
 	{
 	static constexpr std::uint32_t kMagic = 0x43594B53; // "SKYC"
-	static constexpr std::uint32_t kVersion = 16;
+	static constexpr std::uint32_t kVersion = 19;
 	static constexpr wchar_t kMappingName[] = L"Local\\JKCraft_v1";
 	static constexpr std::uint64_t kStateOffset = 0x100;
 	static constexpr std::uint64_t kForceStateOffset = 0x180;
@@ -50,6 +50,25 @@ namespace jkcraft
 	static constexpr std::uint64_t kEventRingOffset = 0x17000;
 	static constexpr std::uint64_t kMinecraftCellsOffset = 0x1B100;
 	static constexpr std::uint32_t kMaxMinecraftCells = 128;
+	enum MinecraftCellKind : std::int32_t
+	{
+		kCellSolid = 1,
+		kCellWater = 2,
+		kCellLava = 3,
+		kCellFire = 4,
+		kCellHazard = 5,
+		kCellSlow = 6,
+	};
+	enum HurtKind : std::int32_t
+	{
+		kHurtMelee = 0,
+		kHurtProjectile = 1,
+		kHurtMagic = 2,
+		kHurtOther = 3,
+		kHurtFire = 4,
+		kHurtLava = 5,
+		kHurtHazard = 6,
+	};
 	static constexpr std::uint64_t kEventRingHeadOffset = 0x00;
 	static constexpr std::uint64_t kEventRingTailOffset = 0x40;
 	static constexpr std::uint64_t kEventRingDataOffset = 0x80;
@@ -256,6 +275,7 @@ namespace jkcraft
 	static constexpr std::uint32_t kMobGroundHit = 1u << 0;
 	static constexpr std::uint32_t kMobGroundStartSolid = 1u << 1;
 	static constexpr std::uint32_t kMobRequestHostile = 1u << 16;
+	static constexpr std::uint32_t kMobRequestLiving = 1u << 17;
 	static constexpr std::uint32_t kMobRequestMask = 0xffff0000u;
 	static_assert(kWaterGridOffset + sizeof(WaterGrid) <= kDirectMoveOffset);
 	static_assert(kDirectMoveOffset + sizeof(DirectMove) <= kDirectRayOffset);
@@ -273,6 +293,13 @@ namespace jkcraft
 		kMinecraftDead = 1u << 5,
 		kMinecraftSwimming = 1u << 6,
 		kMinecraftFlying = 1u << 7,
+		kMinecraftOnFire = 1u << 8,
+	};
+
+	enum ControlMode : std::uint32_t
+	{
+		kControlMinecraft = 0,
+		kControlJedi = 1,
 	};
 
 	struct MinecraftState
@@ -303,9 +330,11 @@ namespace jkcraft
 		float cameraDistance;
 		double cameraX, cameraY, cameraZ;
 		float cameraYaw, cameraPitch;
+		std::uint32_t controlMode;
+		std::uint32_t controlSequence;
 	};
 
-	static_assert(sizeof(MinecraftState) == 0xE8);
+	static_assert(sizeof(MinecraftState) == 0xF0);
 	static_assert(kMinecraftStateOffset + sizeof(MinecraftState) <= kOverlayControlOffset);
 
 	enum WorldEntityKind : std::uint32_t
@@ -536,6 +565,7 @@ namespace jkcraft
 		kInputOpenMenu = 8,
 		kInputPickup = 9,
 		kInputMobHurt = 10,
+		kInputToggleControl = 11,
 	};
 
 	struct InputEvent

@@ -33,6 +33,10 @@ public final class SkyClient {
 	private static boolean windowHidden;
 	private static boolean startupReadyReported;
 	private static int appliedViewportW, appliedViewportH;
+	private static int controlMode = Proto.CONTROL_MINECRAFT;
+	private static int controlSequence;
+	private static int lastAnnouncedNetworkWorld;
+	private static long nextNetworkMapAnnouncement;
 
 	// Teleport / hold state: Skyrim decides where the player is after loads, doors and respawns.
 	private static int lastTeleportSeq = -1;
@@ -85,6 +89,39 @@ public final class SkyClient {
 		return sky;
 	}
 
+	/** True while Minecraft owns movement, camera, input and its HUD/avatar. */
+	public static boolean minecraftControlsPlayer() {
+		return controlMode == Proto.CONTROL_MINECRAFT;
+	}
+
+	/** F6 arrives through the bridge even when OpenJK currently owns normal input. */
+	public static void toggleControlMode() {
+		Minecraft minecraft = Minecraft.getInstance();
+		if (!linked || minecraft.player == null || !sky.inGame() || sky.loading() || sky.cinematic()) {
+			SkyCraft.LOG.info("JKCraft: control-mode switch ignored until gameplay is ready");
+			return;
+		}
+		InputBridge.releaseAll();
+		controlMode = controlMode == Proto.CONTROL_MINECRAFT
+			? Proto.CONTROL_JEDI : Proto.CONTROL_MINECRAFT;
+		controlSequence++;
+		mc.controlMode = controlMode;
+		mc.controlSequence = controlSequence;
+		forceJumpActive = false;
+		forceJumpTicks = 0;
+		forceJumpPaid = false;
+		streamedHold = null;
+		if (controlMode == Proto.CONTROL_MINECRAFT) {
+			// The normal teleport/ack path moves Minecraft to the Jedi before OpenJK
+			// starts hiding and puppeting its native player again.
+			teleportPending = true;
+		} else {
+			holdPos = null;
+		}
+		SkyCraft.LOG.info("JKCraft: control mode -> {} (sequence {})",
+			controlMode == Proto.CONTROL_MINECRAFT ? "Minecraft" : "Jedi", controlSequence);
+	}
+
 	/** Start of Minecraft.runTick: pull state and input from Skyrim before anything else runs. */
 	public static void beginFrame() {
 		SkyLink.poll();
@@ -115,6 +152,10 @@ public final class SkyClient {
 			SkyCraft.LOG.info("JKCraft: Jedi Academy link {}", linked ? "up" : "down");
 			if (linked) {
 				tookOver = true;
+				controlMode = Proto.CONTROL_MINECRAFT;
+				controlSequence++;
+				mc.controlMode = controlMode;
+				mc.controlSequence = controlSequence;
 				unlinkedHold = null;
 				SkyCollision.startConsumer();
 				applyLinkedOptions();
@@ -134,7 +175,10 @@ public final class SkyClient {
 		MirrorWorld.openWhenReady(minecraft);
 
 		boolean hostOwnsInput = sky.menuOpen() || sky.loading() || sky.cinematic();
-		if (hostOwnsInput) {
+		if (!minecraftControlsPlayer()) {
+			InputBridge.releaseAll();
+			InputBridge.drainBridgeEvents(minecraft);
+		} else if (hostOwnsInput) {
 			InputBridge.releaseAll();
 			InputBridge.discard();
 		} else {
@@ -147,6 +191,7 @@ public final class SkyClient {
 			lastPlayer = null;
 			return;
 		}
+		announceNetworkMap(sky.worldId);
 
 		// A new player object means we just joined or respawned: put it where Skyrim's player is.
 		if (player != lastPlayer) {
@@ -170,6 +215,15 @@ public final class SkyClient {
 
 		// Minecraft owns look direction after the initial teleport. Feeding OpenJK's previous
 		// frame back here cancels most relative mouse movement and makes the camera feel locked.
+	}
+
+	private static void announceNetworkMap(int worldId) {
+		if (worldId == 0 || !ClientPlayNetworking.canSend(dev.skycraft.net.SkyNet.MapState.TYPE)) return;
+		long now = System.currentTimeMillis();
+		if (worldId == lastAnnouncedNetworkWorld && now < nextNetworkMapAnnouncement) return;
+		lastAnnouncedNetworkWorld = worldId;
+		nextNetworkMapAnnouncement = now + 2000;
+		ClientPlayNetworking.send(new dev.skycraft.net.SkyNet.MapState(worldId, Proto.VERSION));
 	}
 
 	// Minecraft is started with Skyrim (the SKSE plugin launches it), so it goes when that Skyrim has
@@ -221,15 +275,58 @@ public final class SkyClient {
 	/** Called at the end of every client tick. */
 	public static void clientTick(Minecraft minecraft) {
 		MirrorWorld.tick(minecraft);
-		applyForceJump(minecraft);
 		DiscordPresence.tick(minecraft);
 		SkyDigClient.tick(minecraft);
-		freezeWhileUnlinked(minecraft);
-		holdUntilReady(minecraft);
-		protectAgainstMissingCollision(minecraft);
-		repairResetAirVelocity(minecraft);
+		if (minecraftControlsPlayer()) {
+			applyForceJump(minecraft);
+			freezeWhileUnlinked(minecraft);
+			holdUntilReady(minecraft);
+			protectAgainstMissingCollision(minecraft);
+			repairResetAirVelocity(minecraft);
+		} else {
+			followJediAnchor(minecraft);
+		}
 		publishTick(minecraft);
 		logPhysicsDiagnostic(minecraft);
+	}
+
+	/**
+	 * In Jedi mode Minecraft remains an invisible anchor. Following OpenJK keeps the same chunks,
+	 * blocks, entities and lights streaming into the renderer while native JA movement is active.
+	 */
+	private static void followJediAnchor(Minecraft minecraft) {
+		LocalPlayer player = minecraft.player;
+		if (!linked || player == null || !sky.inGame() || sky.loading() || sky.cinematic()) {
+			return;
+		}
+		double x = sky.x, y = sky.y, z = sky.z;
+		float yaw = sky.yaw, pitch = sky.pitch;
+		player.setDeltaMovement(Vec3.ZERO);
+		player.setPos(x, y, z);
+		player.setYRot(yaw);
+		player.setXRot(pitch);
+		player.xo = x;
+		player.yo = y;
+		player.zo = z;
+		player.yRotO = yaw;
+		player.xRotO = pitch;
+		player.resetFallDistance();
+		holdPos = null;
+
+		var server = minecraft.getSingleplayerServer();
+		if (server != null) {
+			var uuid = player.getUUID();
+			server.execute(() -> {
+				ServerPlayer sp = server.getPlayerList().getPlayer(uuid);
+				if (sp != null) {
+					sp.teleportTo(x, y, z);
+					sp.setYRot(yaw);
+					sp.setXRot(pitch);
+					sp.setDeltaMovement(Vec3.ZERO);
+					sp.resetFallDistance();
+				}
+			});
+		}
 	}
 
 	/**
@@ -480,6 +577,8 @@ public final class SkyClient {
 		mc.walkDist = bob ? avatar.getInterpolatedWalkDistance(1.0F) : 0.0F;
 		mc.bobO = bob ? avatar.getInterpolatedBob(0.0F) : 0.0F;
 		mc.bob = bob ? avatar.getInterpolatedBob(1.0F) : 0.0F;
+		mc.controlMode = controlMode;
+		mc.controlSequence = controlSequence;
 		SkyLink.writeMcState(mc);
 	}
 
@@ -602,6 +701,9 @@ public final class SkyClient {
 			if (player.getAbilities().flying) {
 				flags |= Proto.MC_FLYING;
 			}
+			if (player.isOnFire()) {
+				flags |= Proto.MC_ON_FIRE;
+			}
 			mc.x = feet.x;
 			mc.y = feet.y;
 			mc.z = feet.z;
@@ -622,6 +724,8 @@ public final class SkyClient {
 			mc.cameraZ = camera.position().z;
 			mc.cameraYaw = camera.yRot();
 			mc.cameraPitch = camera.xRot();
+		mc.controlMode = controlMode;
+		mc.controlSequence = controlSequence;
 			// Walk bob, exactly what GameRenderer.bobView() uses this frame.
 			var entityState = minecraft.gameRenderer.gameRenderState().levelRenderState.cameraRenderState.entityRenderState;
 			boolean bob = minecraft.options.bobView().get() && entityState.isPlayer;
@@ -646,7 +750,9 @@ public final class SkyClient {
 					SkyCraft.LOG.error("JKCraft: world export failed", e);
 				}
 			}
-			FrameExporter.capture(minecraft);
+			if (minecraftControlsPlayer()) {
+				FrameExporter.capture(minecraft);
+			}
 		}
 	}
 

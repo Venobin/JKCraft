@@ -51,9 +51,16 @@ public final class JKCraftLauncher {
     private final Path settingsFile;
     private final Properties settings = new Properties();
     private JTextField nicknameField;
+    private JTextField addressField;
+    private JTextField portField;
+    private JComboBox<String> sessionModeBox;
     private JLabel status;
+    private JLabel modeBanner;
     private JLabel nicknameLabel;
     private JLabel nicknameHint;
+    private JLabel sessionModeLabel;
+    private JLabel addressLabel;
+    private JLabel portLabel;
     private JLabel progressDetail;
     private JProgressBar progressBar;
     private JButton launchButton;
@@ -146,7 +153,7 @@ public final class JKCraftLauncher {
         frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         frame.setResizable(false);
         frame.setContentPane(new Skin());
-        frame.setSize(new Dimension(760, 430));
+        frame.setSize(new Dimension(760, 500));
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
     }
@@ -157,42 +164,61 @@ public final class JKCraftLauncher {
             setBackground(BACKGROUND);
             add(label("JK", 36, 20, 38, GREEN, Font.BOLD));
             add(label("CRAFT", 85, 20, 38, TEXT, Font.BOLD));
-            add(label("OFFLINE  /  SINGLE PLAYER", 38, 70, 12, GOLD, Font.BOLD));
+            modeBanner = label("", 38, 70, 12, GOLD, Font.BOLD);
+            add(modeBanner);
             add(label("JEDI ACADEMY  ×  MINECRAFT", 414, 32, 11, MUTED, Font.BOLD));
             languageButton = button("RUS / EN", 615, 23, 107, PANEL, GOLD, () -> toggleLanguage());
             languageButton.setBounds(615, 23, 107, 34);
             add(languageButton);
 
-            nicknameLabel = label("", 38, 132, 12, MUTED, Font.BOLD);
+            nicknameLabel = label("", 38, 120, 12, MUTED, Font.BOLD);
             add(nicknameLabel);
-            nicknameField = field(settings.getProperty("nickname", "Jaden"), 38, 157, 684);
+            nicknameField = field(settings.getProperty("nickname", "Jaden"), 38, 145, 684);
             add(nicknameField);
-            nicknameHint = label("", 39, 197, 11, MUTED, Font.PLAIN);
+            nicknameHint = label("", 39, 182, 11, MUTED, Font.PLAIN);
             add(nicknameHint);
 
-            launchButton = button("", 38, 236, 316, GREEN, BACKGROUND,
+            sessionModeLabel = label("", 38, 207, 12, MUTED, Font.BOLD);
+            add(sessionModeLabel);
+            sessionModeBox = new JComboBox<>();
+            sessionModeBox.setBounds(38, 232, 258, 36);
+            sessionModeBox.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+            sessionModeBox.setBackground(PANEL);
+            sessionModeBox.setForeground(TEXT);
+            sessionModeBox.addActionListener(event -> updateNetworkFields());
+            add(sessionModeBox);
+            addressLabel = label("", 314, 207, 12, MUTED, Font.BOLD);
+            add(addressLabel);
+            addressField = field(settings.getProperty("serverAddress", "127.0.0.1"), 314, 232, 266);
+            add(addressField);
+            portLabel = label("", 598, 207, 12, MUTED, Font.BOLD);
+            add(portLabel);
+            portField = field(settings.getProperty("serverPort", "25565"), 598, 232, 124);
+            add(portField);
+
+            launchButton = button("", 38, 290, 316, GREEN, BACKGROUND,
                 () -> { if (RUNNING.get()) stopGame(); else launch(); });
             launchButton.setFont(new Font("Segoe UI", Font.BOLD, 17));
             add(launchButton);
-            settingsButton = button("", 366, 236, 112, PANEL, TEXT, () -> openSettings());
+            settingsButton = button("", 366, 290, 112, PANEL, TEXT, () -> openSettings());
             add(settingsButton);
-            foldersButton = button("", 490, 236, 108, PANEL, TEXT, () -> openDirectory(packageRoot.resolve("GameResources")));
+            foldersButton = button("", 490, 290, 108, PANEL, TEXT, () -> openDirectory(packageRoot.resolve("GameResources")));
             add(foldersButton);
-            guideButton = button("", 610, 236, 112, PANEL, TEXT, () -> openFile(packageRoot.resolve(
+            guideButton = button("", 610, 290, 112, PANEL, TEXT, () -> openFile(packageRoot.resolve(
                 russian ? "INSTALLATION_RU.txt" : "INSTALLATION_EN.txt")));
             add(guideButton);
 
-            status = label("", 38, 291, 12, MUTED, Font.PLAIN);
+            status = label("", 38, 345, 12, MUTED, Font.PLAIN);
             status.setSize(690, 28);
             add(status);
             progressBar = new JProgressBar();
-            progressBar.setBounds(38, 326, 684, 14);
+            progressBar.setBounds(38, 380, 684, 14);
             progressBar.setForeground(GREEN);
             progressBar.setBackground(PANEL);
             progressBar.setBorder(BorderFactory.createLineBorder(new Color(66, 91, 88), 1));
             progressBar.setVisible(false);
             add(progressBar);
-            progressDetail = label("", 38, 345, 11, MUTED, Font.PLAIN);
+            progressDetail = label("", 38, 399, 11, MUTED, Font.PLAIN);
             progressDetail.setVisible(false);
             add(progressDetail);
             updateLanguage();
@@ -201,7 +227,7 @@ public final class JKCraftLauncher {
         @Override protected void paintComponent(Graphics raw) {
             super.paintComponent(raw);
             Graphics2D g = (Graphics2D) raw.create();
-            g.setPaint(new GradientPaint(0, 0, BACKGROUND, 760, 430, new Color(20, 32, 36)));
+            g.setPaint(new GradientPaint(0, 0, BACKGROUND, 760, 500, new Color(20, 32, 36)));
             g.fillRect(0, 0, getWidth(), getHeight());
             g.setColor(new Color(40, 65, 62));
             for (int x = 0; x < 760; x += 38) g.fillRect(x, 93, 37, 2);
@@ -209,7 +235,7 @@ public final class JKCraftLauncher {
             g.fillRect(38, 91, 114, 4);
             g.setStroke(new BasicStroke(2f));
             g.setColor(new Color(49, 71, 72));
-            g.drawRect(24, 107, 710, 268);
+            g.drawRect(24, 107, 710, 338);
             g.setColor(new Color(29, 55, 50));
             for (int i = 0; i < 7; i++) {
                 int x = 636 + (i % 3) * 28;
@@ -225,8 +251,21 @@ public final class JKCraftLauncher {
     }
 
     private void updateLanguage() {
+        modeBanner.setText(tr("OFFLINE  /  ОДИНОЧНАЯ И СЕТЕВАЯ ИГРА",
+            "OFFLINE  /  SINGLE PLAYER + MULTIPLAYER"));
         nicknameLabel.setText(tr("ИМЯ ИГРОКА", "PLAYER NAME"));
         nicknameHint.setText(tr("3–16 латинских букв, цифр или _", "3–16 Latin letters, digits or _"));
+        sessionModeLabel.setText(tr("РЕЖИМ", "MODE"));
+        addressLabel.setText(tr("АДРЕС СЕРВЕРА", "SERVER ADDRESS"));
+        portLabel.setText(tr("ПОРТ", "PORT"));
+        int selectedMode = sessionModeBox.getItemCount() == 0
+            ? modeIndex(settings.getProperty("sessionMode", "single")) : sessionModeBox.getSelectedIndex();
+        sessionModeBox.removeAllItems();
+        sessionModeBox.addItem(tr("Одиночная игра", "Single player"));
+        sessionModeBox.addItem(tr("Создать игру", "Host game"));
+        sessionModeBox.addItem(tr("Подключиться", "Join game"));
+        sessionModeBox.setSelectedIndex(Math.max(0, Math.min(2, selectedMode)));
+        updateNetworkFields();
         updateLaunchButton();
         settingsButton.setText(tr("НАСТРОЙКИ", "SETTINGS"));
         foldersButton.setText(tr("РЕСУРСЫ", "ASSETS"));
@@ -240,6 +279,21 @@ public final class JKCraftLauncher {
             status.setText(tr("Локальный запуск без авторизации. Игровые ресурсы не включены.",
                 "Local launch without sign-in. Game assets are not included."));
         }
+    }
+
+    private static int modeIndex(String mode) {
+        if ("host".equalsIgnoreCase(mode)) return 1;
+        if ("join".equalsIgnoreCase(mode)) return 2;
+        return 0;
+    }
+
+    private void updateNetworkFields() {
+        if (sessionModeBox == null || addressField == null || portField == null) return;
+        int mode = Math.max(0, sessionModeBox.getSelectedIndex());
+        addressField.setEnabled(mode == 2);
+        portField.setEnabled(mode != 0);
+        addressLabel.setForeground(mode == 2 ? MUTED : new Color(82, 96, 99));
+        portLabel.setForeground(mode != 0 ? MUTED : new Color(82, 96, 99));
     }
 
     private void updateLaunchButton() {
@@ -461,9 +515,30 @@ public final class JKCraftLauncher {
             : nicknameField.getText().trim();
         String academy = defaultAcademy();
         String minecraft = defaultMinecraft();
+        int modeIndex = sessionModeBox == null
+            ? modeIndex(settings.getProperty("sessionMode", "single")) : sessionModeBox.getSelectedIndex();
+        String sessionMode = modeIndex == 1 ? "host" : modeIndex == 2 ? "join" : "single";
+        String serverAddress = addressField == null ? settings.getProperty("serverAddress", "127.0.0.1")
+            : addressField.getText().trim();
+        String serverPortText = portField == null ? settings.getProperty("serverPort", "25565")
+            : portField.getText().trim();
         if (!nickname.matches("[A-Za-z0-9_]{3,16}")) {
             throw new IllegalArgumentException(tr("Ник: 3–16 латинских букв, цифр или _.",
                 "Name: 3–16 Latin letters, digits or _."));
+        }
+        if (!serverPortText.matches("[0-9]{1,5}")) {
+            throw new IllegalArgumentException(tr("Порт должен быть числом от 1024 до 65535.",
+                "Port must be a number from 1024 to 65535."));
+        }
+        int serverPort = Integer.parseInt(serverPortText);
+        if (serverPort < 1024 || serverPort > 65535) {
+            throw new IllegalArgumentException(tr("Порт должен быть от 1024 до 65535.",
+                "Port must be between 1024 and 65535."));
+        }
+        if ("join".equals(sessionMode) &&
+            (serverAddress.isBlank() || !serverAddress.matches("[A-Za-z0-9._-]+(?::[0-9]{1,5})?"))) {
+            throw new IllegalArgumentException(tr("Введите IP или адрес сервера, например 192.168.1.5.",
+                "Enter a server IP or address, for example 192.168.1.5."));
         }
         if (!Files.isRegularFile(Paths.get(academy, "base", "assets0.pk3"))) {
             throw new IllegalArgumentException(tr("Не найден Jedi Academy GameData/base/assets0.pk3.",
@@ -473,7 +548,7 @@ public final class JKCraftLauncher {
             ? Files.isRegularFile(packageRoot.resolve("ClientCore/gradlew.bat")) &&
                 Files.isRegularFile(packageRoot.resolve("Runtime/Java25/bin/java.exe")) &&
                 Files.isRegularFile(packageRoot.resolve("OpenJK/openjk_sp.x86.exe")) &&
-                Files.isRegularFile(packageRoot.resolve("mods/jkcraft-0.1.3.jar"))
+                Files.isRegularFile(packageRoot.resolve("mods/jkcraft-0.1.4.jar"))
             : Files.isRegularFile(workspace.resolve("SkyCraft-main/fabric/gradlew.bat")) &&
                 Files.isDirectory(workspace.resolve(".gradle-cache"));
         if (!runtimeReady) {
@@ -489,6 +564,9 @@ public final class JKCraftLauncher {
                 "Could not open the Minecraft folder: ") + error.getMessage());
         }
         settings.setProperty("nickname", nickname);
+        settings.setProperty("sessionMode", sessionMode);
+        settings.setProperty("serverAddress", serverAddress);
+        settings.setProperty("serverPort", Integer.toString(serverPort));
         settings.remove("academy");
         settings.remove("minecraft");
         settings.remove("academyPathVersion");
@@ -521,6 +599,14 @@ public final class JKCraftLauncher {
         args.add(settings.getProperty("fullscreen", "0"));
         args.add("-ConsoleLogs");
         args.add(settings.getProperty("consoleLogs", "0"));
+        if (releasePackage) {
+            args.add("-SessionMode");
+            args.add(sessionMode);
+            args.add("-JoinAddress");
+            args.add(serverAddress);
+            args.add("-ServerPort");
+            args.add(Integer.toString(serverPort));
+        }
         if (!releasePackage) {
             args.add("-JediAcademyGameData");
             args.add(academy);

@@ -411,6 +411,8 @@ public final class SkyLink {
 		public float cameraDistance;
 		public double cameraX, cameraY, cameraZ;
 		public float cameraYaw, cameraPitch;
+		public int controlMode;
+		public int controlSequence;
 	}
 
 	public static void writeMcState(McState st) {
@@ -462,6 +464,8 @@ public final class SkyLink {
 		s.set(JAVA_DOUBLE, b + MS_CAMERA_Z, st.cameraZ);
 		s.set(JAVA_FLOAT, b + MS_CAMERA_YAW, st.cameraYaw);
 		s.set(JAVA_FLOAT, b + MS_CAMERA_PITCH, st.cameraPitch);
+		s.set(JAVA_INT, b + MS_CONTROL_MODE, st.controlMode);
+		s.set(JAVA_INT, b + MS_CONTROL_SEQUENCE, st.controlSequence);
 		INT.setRelease(s, b + MS_SEQ, seq + 2);
 	}
 

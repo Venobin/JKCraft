@@ -35,6 +35,16 @@ void JKCraft_PublishCGameStage(unsigned int stage);
 // mode and must not indefinitely suppress Jedi Academy's Force regeneration.
 bool JKCraft_PlayerPuppeted();
 
+// True while Minecraft remains the authoritative health/absorption owner.
+// This deliberately stays true in native Jedi control mode so switching
+// controls does not create a second, divergent JA health pool.
+bool JKCraft_PlayerUsesMinecraftVitals();
+
+// Applies the solid player-built Minecraft cells to native Jedi locomotion.
+// Called immediately after JA pmove so dynamic bridge entities cannot be
+// skipped by the engine's normal trace path.
+void JKCraft_ResolveNativePlayerBlocks(struct gentity_s* player, const float oldOrigin[3]);
+
 // Applies the Minecraft-owned player transform to Jedi Academy's real player.
 // Safe no-op while JKCraft is disabled or Minecraft is disconnected.
 void JKCraft_ApplyPlayer(struct gentity_s* player);

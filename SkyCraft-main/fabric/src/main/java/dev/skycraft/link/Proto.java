@@ -8,7 +8,7 @@ public final class Proto {
 	}
 
 	public static final int MAGIC = 0x43594B53;
-	public static final int VERSION = 16;
+	public static final int VERSION = 19;
 	// Keep the legacy property as a fallback while the inherited SkyCraft packages are renamed.
 	public static final String MAPPING_NAME = System.getProperty("jkcraft.link",
 		System.getProperty("skycraft.link", "Local\\JKCraft_v1"));
@@ -28,6 +28,7 @@ public final class Proto {
 	public static final long MOB_GROUND_BYTES = 40;
 	public static final int MOB_GROUND_HIT = 1, MOB_GROUND_START_SOLID = 2;
 	public static final int MOB_REQUEST_HOSTILE = 1 << 16;
+	public static final int MOB_REQUEST_LIVING = 1 << 17;
 	public static final int WATER_GRID_SIZE = 16;
 	public static final float LAVA_SURFACE_OFFSET = 8192.0F;
 	public static final long WG_SEQ = 0x0, WG_ORIGIN_X = 0x4, WG_ORIGIN_Z = 0x8, WG_WORLD_ID = 0xC, WG_SURFACE = 0x10;
@@ -46,6 +47,7 @@ public final class Proto {
 	public static final long OFF_MC_CELLS = 0x1B100;
 	public static final int MAX_MC_CELLS = 128;
 	public static final int CELL_SOLID = 1, CELL_WATER = 2, CELL_LAVA = 3;
+	public static final int CELL_FIRE = 4, CELL_HAZARD = 5, CELL_SLOW = 6;
 	public static final long OFF_WORLD_ENTITIES = 0x1C000;
 	public static final long OFF_RENDER_RING = OFF_OVERLAY_PIXELS + OVERLAY_SLOT_BYTES * OVERLAY_SLOTS;
 	public static final long RENDER_RING_BYTES = 64L << 20;
@@ -56,12 +58,16 @@ public final class Proto {
 	public static final int IN_OPEN_MENU = 8;
 	public static final int IN_PICKUP = 9;
 	public static final int IN_MOB_HURT = 10;
+	public static final int IN_TOGGLE_CONTROL = 11;
 	public static final int PICKUP_HEALTH = 1;
 	public static final int PICKUP_SHIELD = 2;
 	public static final int HURT_MELEE = 0;
 	public static final int HURT_PROJECTILE = 1;
 	public static final int HURT_MAGIC = 2;
 	public static final int HURT_OTHER = 3;
+	public static final int HURT_FIRE = 4;
+	public static final int HURT_LAVA = 5;
+	public static final int HURT_HAZARD = 6;
 	public static final int HURT_BLOCKED_IN_SKYRIM = 1;
 	public static final int HURT_POWER_ATTACK = 2;
 
@@ -235,6 +241,8 @@ public final class Proto {
 	public static final long MS_CAMERA_Z = 0xD8;
 	public static final long MS_CAMERA_YAW = 0xE0;
 	public static final long MS_CAMERA_PITCH = 0xE4;
+	public static final long MS_CONTROL_MODE = 0xE8;
+	public static final long MS_CONTROL_SEQUENCE = 0xEC;
 
 	public static final int MC_IN_WORLD = 1;
 	public static final int MC_SCREEN_OPEN = 1 << 1;
@@ -244,6 +252,9 @@ public final class Proto {
 	public static final int MC_DEAD = 1 << 5;
 	public static final int MC_SWIMMING = 1 << 6;
 	public static final int MC_FLYING = 1 << 7;
+	public static final int MC_ON_FIRE = 1 << 8;
+	public static final int CONTROL_MINECRAFT = 0;
+	public static final int CONTROL_JEDI = 1;
 
 	// Overlay
 	public static final long OC_STATE = 0x00;

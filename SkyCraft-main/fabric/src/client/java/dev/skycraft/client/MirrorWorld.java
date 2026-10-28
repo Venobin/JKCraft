@@ -23,6 +23,7 @@ public final class MirrorWorld {
 	private static @org.jspecify.annotations.Nullable String sessionJoin;
 	// Shown in chat once the player is in a world again (why they're back in their own, ...).
 	private static @org.jspecify.annotations.Nullable String pendingNote;
+	private static volatile boolean hostPublishRequested;
 
 	private MirrorWorld() {
 	}
@@ -32,6 +33,14 @@ public final class MirrorWorld {
 	 * with the template below the first time, so there's something to fill in.
 	 */
 	private static @org.jspecify.annotations.Nullable String joinAddress(Minecraft minecraft) {
+		String mode = System.getenv().getOrDefault("JKCRAFT_SESSION_MODE", "").trim();
+		if (mode.equalsIgnoreCase("join")) {
+			String address = System.getenv().getOrDefault("JKCRAFT_JOIN_ADDRESS", "").trim();
+			String port = System.getenv().getOrDefault("JKCRAFT_SERVER_PORT", "25565").trim();
+			if (!address.isEmpty() && !address.contains(":")) address += ":" + port;
+			return address.isEmpty() ? null : address;
+		}
+		if (mode.equalsIgnoreCase("single") || mode.equalsIgnoreCase("host")) return null;
 		java.nio.file.Path file = minecraft.gameDirectory.toPath().resolve("config").resolve("skycraft.properties");
 		java.util.Properties props = new java.util.Properties();
 		try {
@@ -96,10 +105,31 @@ public final class MirrorWorld {
 
 	/** Every client tick: a note for the player once they're in a world again. */
 	public static void tick(Minecraft minecraft) {
+		publishHostWhenReady(minecraft);
 		if (pendingNote != null && minecraft.player != null) {
 			minecraft.gui.hud.getChat().addClientSystemMessage(net.minecraft.network.chat.Component.literal(pendingNote));
 			pendingNote = null;
 		}
+	}
+
+	private static void publishHostWhenReady(Minecraft minecraft) {
+		if (!"host".equalsIgnoreCase(System.getenv().getOrDefault("JKCRAFT_SESSION_MODE", ""))) return;
+		var server = minecraft.getSingleplayerServer();
+		if (server == null || minecraft.player == null || server.isPublished() || hostPublishRequested) return;
+		int port = 25565;
+		try {
+			port = Integer.parseInt(System.getenv().getOrDefault("JKCRAFT_SERVER_PORT", "25565"));
+		} catch (NumberFormatException ignored) {
+		}
+		final int selectedPort = Math.max(1024, Math.min(65535, port));
+		hostPublishRequested = true;
+		server.execute(() -> {
+			boolean published = server.publishServer(
+				net.minecraft.server.MinecraftServer.MultiplayerScope.LAN, false, selectedPort);
+			SkyCraft.LOG.info("JKCraft: multiplayer host {} on port {}",
+				published ? "ready" : "failed", selectedPort);
+			if (!published) hostPublishRequested = false;
+		});
 	}
 
 	public static void openWhenReady(Minecraft minecraft) {

@@ -2,11 +2,18 @@ package dev.skycraft.net;
 
 import dev.skycraft.SkyCraft;
 import dev.skycraft.combat.SkyCombat;
+import dev.skycraft.link.Proto;
 import dev.skycraft.world.SkyDig;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.core.BlockPos;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -20,6 +27,9 @@ import net.minecraft.server.level.ServerPlayer;
  * host's server through these packets instead.
  */
 public final class SkyNet {
+	private static final Map<UUID, Integer> PLAYER_MAPS = new ConcurrentHashMap<>();
+	private static volatile int hostMap;
+
 	private SkyNet() {
 	}
 
@@ -126,6 +136,21 @@ public final class SkyNet {
 		}
 	}
 
+	/** Client -> server: the local OpenJK map that owns this player's coordinates. */
+	public record MapState(int world, int protocol) implements CustomPacketPayload {
+		public static final Type<MapState> TYPE = new Type<>(Identifier.fromNamespaceAndPath(SkyCraft.MOD_ID, "map_state"));
+		public static final StreamCodec<RegistryFriendlyByteBuf, MapState> CODEC = StreamCodec.composite(
+			ByteBufCodecs.INT, MapState::world,
+			ByteBufCodecs.VAR_INT, MapState::protocol,
+			MapState::new
+		);
+
+		@Override
+		public Type<? extends CustomPacketPayload> type() {
+			return TYPE;
+		}
+	}
+
 	public static void init() {
 		PayloadTypeRegistry.serverboundPlay().register(Hurt.TYPE, Hurt.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(Pickup.TYPE, Pickup.CODEC);
@@ -133,6 +158,16 @@ public final class SkyNet {
 		PayloadTypeRegistry.serverboundPlay().register(DigReveal.TYPE, DigReveal.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(ResetMap.TYPE, ResetMap.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(ForceJumpStarted.TYPE, ForceJumpStarted.CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(MapState.TYPE, MapState.CODEC);
+		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+			PLAYER_MAPS.clear();
+			hostMap = 0;
+		});
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+			ServerPlayer player = handler.getPlayer();
+			PLAYER_MAPS.remove(player.getUUID());
+			if (isHost(player)) hostMap = 0;
+		});
 		ServerPlayNetworking.registerGlobalReceiver(DigOpen.TYPE, (payload, context) -> {
 			ServerPlayer player = context.player();
 			context.server().execute(() -> SkyDig.open(player, payload.world(), payload.pos(), payload.material()));
@@ -150,6 +185,10 @@ public final class SkyNet {
 			ServerPlayer player = context.player();
 			context.server().execute(() -> dev.skycraft.world.ForceJumpProtection.start(player));
 		});
+		ServerPlayNetworking.registerGlobalReceiver(MapState.TYPE, (payload, context) -> {
+			ServerPlayer player = context.player();
+			context.server().execute(() -> acceptMapState(player, payload));
+		});
 		PayloadTypeRegistry.clientboundPlay().register(Died.TYPE, Died.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(Hurt.TYPE, (payload, context) -> {
 			ServerPlayer player = context.player();
@@ -161,6 +200,32 @@ public final class SkyNet {
 			ServerPlayer player = context.player();
 			context.server().execute(() -> SkyCombat.pickupPlayer(player, payload.kind(), payload.jediPoints()));
 		});
+	}
+
+	private static void acceptMapState(ServerPlayer player, MapState state) {
+		if (state.protocol() != Proto.VERSION || state.world() == 0) {
+			player.connection.disconnect(Component.literal("JKCraft: incompatible bridge protocol or OpenJK map is not ready."));
+			return;
+		}
+		PLAYER_MAPS.put(player.getUUID(), state.world());
+		if (isHost(player)) {
+			hostMap = state.world();
+			for (ServerPlayer guest : player.level().getServer().getPlayerList().getPlayers()) {
+				if (guest == player) continue;
+				Integer guestMap = PLAYER_MAPS.get(guest.getUUID());
+				if (guestMap != null && guestMap != hostMap) disconnectWrongMap(guest, hostMap, guestMap);
+			}
+			return;
+		}
+		if (hostMap != 0 && state.world() != hostMap) {
+			disconnectWrongMap(player, hostMap, state.world());
+		}
+	}
+
+	private static void disconnectWrongMap(ServerPlayer player, int expected, int actual) {
+		SkyCraft.LOG.warn("JKCraft: rejecting {} because OpenJK map {} differs from host map {}",
+			player.getPlainTextName(), Integer.toUnsignedString(actual), Integer.toUnsignedString(expected));
+		player.connection.disconnect(Component.literal("JKCraft: your Jedi Academy level differs from the host. Load the same level and reconnect."));
 	}
 
 	/** True if this player plays on this machine (their Skyrim is on the shared-memory link). */

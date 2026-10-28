@@ -39,6 +39,11 @@ namespace
 	cvar_t* combatTest = nullptr;
 	float lastFov = -1.0f;
 	std::uint32_t lastCameraMode = ~0u;
+	std::uint32_t lastControlMode = ~0u;
+	std::uint32_t lastPlayerControlMode = ~0u;
+	std::uint32_t lastPlayerControlSequence = ~0u;
+	int savedNativeThirdPerson = 1;
+	float savedNativeThirdPersonAngle = 0.0f;
 	bool applyingMinecraftEvent = false;
 	bool loggedActors = false;
 	bool loggedActorHit = false;
@@ -57,15 +62,23 @@ namespace
 	int combatTestDamageAt = 0;
 	std::uint32_t Read32(const std::uint32_t* value);
 	bool OpenLink();
+	bool PushHurt(int kind, int damage, int attackerId, int flags);
 	int cellEntityNumbers[jkcraft::protocol::kMaxMinecraftCells]{};
 	jkcraft::protocol::MinecraftCell cellEntities[jkcraft::protocol::kMaxMinecraftCells]{};
 	std::uint32_t cellWorldId = 0;
 	std::uint32_t cellSequence = 0;
 	int cellLevelTime = 0;
 	bool cellsInitialized = false;
-	int npcLavaNext[MAX_GENTITIES]{};
+	int npcEnvironmentNext[MAX_GENTITIES]{};
+	int playerEnvironmentNext = 0;
+	int playerMinecraftLavaNext = 0;
+	int playerBurnUntil = 0;
+	int playerBurnEffectNext = 0;
+	int playerBurnLastLevelTime = 0;
+	bool playerWasBurning = false;
 	int mobTargetEntityNumbers[jkcraft::protocol::kMaxMobGround]{};
 	std::uint32_t mobTargetMinecraftIds[jkcraft::protocol::kMaxMobGround]{};
+	bool mobTargetHostile[jkcraft::protocol::kMaxMobGround]{};
 	std::uint32_t mobTargetWorldId = 0;
 	std::uint32_t mobTargetResponse = 0;
 	int mobTargetLevelTime = 0;
@@ -85,6 +98,7 @@ namespace
 				}
 			}
 			cellEntityNumbers[i] = 0;
+			cellEntities[i] = {};
 		}
 		cellSequence = 0;
 	}
@@ -118,6 +132,7 @@ namespace
 			}
 			mobTargetEntityNumbers[i] = 0;
 			mobTargetMinecraftIds[i] = 0;
+			mobTargetHostile[i] = false;
 		}
 		mobTargetResponse = 0;
 	}
@@ -168,6 +183,8 @@ namespace
 		for (std::uint32_t i = 0; i < jkcraft::protocol::kMaxMobGround; ++i)
 		{
 			const bool wanted = i < snapshot.count &&
+				(snapshot.records[i].resultFlags & jkcraft::protocol::kMobRequestLiving) != 0;
+			const bool hostile = wanted &&
 				(snapshot.records[i].resultFlags & jkcraft::protocol::kMobRequestHostile) != 0;
 			const std::uint32_t minecraftId = wanted ? snapshot.records[i].entityId : 0;
 			const int number = mobTargetEntityNumbers[i];
@@ -183,6 +200,7 @@ namespace
 			{
 				mobTargetEntityNumbers[i] = 0;
 				mobTargetMinecraftIds[i] = 0;
+				mobTargetHostile[i] = false;
 				continue;
 			}
 			if (!entity)
@@ -192,22 +210,26 @@ namespace
 				{
 					mobTargetEntityNumbers[i] = 0;
 					mobTargetMinecraftIds[i] = 0;
+					mobTargetHostile[i] = false;
 					continue;
 				}
 				entity->classname = "jkcraft_minecraft_mob";
-				entity->svFlags |= SVF_NOCLIENT | SVF_NONNPC_ENEMY;
+				entity->svFlags |= SVF_NOCLIENT;
 				entity->s.eType = ET_GENERAL;
 				entity->s.weapon = WP_NONE;
 				entity->contents = CONTENTS_BODY;
 				entity->clipmask = MASK_SHOT;
 				entity->takedamage = qtrue;
 				entity->health = entity->max_health = 10000;
-				// TEAM_ENEMY means friendly Jedi Academy NPCs regard this non-client
-				// object as hostile while enemy NPCs do not attack their own side.
-				entity->noDamageTeam = TEAM_ENEMY;
 				mobTargetEntityNumbers[i] = entity->s.number;
 				mobTargetMinecraftIds[i] = minecraftId;
 			}
+			// Only monsters are automatic combat targets for friendly JA NPCs. Passive
+			// animals still get a shootable proxy so the native Jedi player can hit them.
+			mobTargetHostile[i] = hostile;
+			if (hostile) entity->svFlags |= SVF_NONNPC_ENEMY;
+			else entity->svFlags &= ~SVF_NONNPC_ENEMY;
+			entity->noDamageTeam = hostile ? TEAM_ENEMY : TEAM_FREE;
 
 			const auto& mob = snapshot.records[i];
 			const float half = std::max(0.1f, std::min(mob.halfWidth, 4.0f)) * scale;
@@ -249,6 +271,7 @@ namespace
 			{
 				const int number = mobTargetEntityNumbers[i];
 				if (number <= 0 || number >= globals.num_entities) continue;
+				if (!mobTargetHostile[i]) continue;
 				gentity_t* candidate = &g_entities[number];
 				if (!IsMinecraftMobTarget(candidate)) continue;
 				const float distance = DistanceSquared(actor->currentOrigin, candidate->currentOrigin);
@@ -272,47 +295,186 @@ namespace
 		}
 	}
 
-	void AffectNpcsByMinecraftFluids(float scale)
+	bool ActorOverlapsMinecraftCell(const gentity_t* actor,
+		const jkcraft::protocol::MinecraftCell& cell, float half, float scale)
+	{
+		if (!actor || cell.kind == 0) return false;
+		const float cx = (cell.x + 0.5f) * scale;
+		const float cy = -(cell.z + 0.5f) * scale;
+		const float cz = (cell.y + 0.5f) * scale;
+		return actor->currentOrigin[0] + actor->maxs[0] >= cx - half &&
+			actor->currentOrigin[0] + actor->mins[0] <= cx + half &&
+			actor->currentOrigin[1] + actor->maxs[1] >= cy - half &&
+			actor->currentOrigin[1] + actor->mins[1] <= cy + half &&
+			actor->currentOrigin[2] + actor->maxs[2] >= cz - half &&
+			actor->currentOrigin[2] + actor->mins[2] <= cz + half;
+	}
+
+	bool ActorTouchesMinecraftCellKind(const gentity_t* actor, int kind, float scale)
+	{
+		const float half = scale * 0.5f;
+		for (std::uint32_t i = 0; i < jkcraft::protocol::kMaxMinecraftCells; ++i)
+		{
+			if (cellEntities[i].kind == kind &&
+				ActorOverlapsMinecraftCell(actor, cellEntities[i], half, scale)) return true;
+		}
+		return false;
+	}
+
+	void AffectNpcsByMinecraftEnvironment(float scale)
 	{
 		const float half = scale * 0.5f;
 		for (int n = 1; n < globals.num_entities; ++n)
 		{
 			gentity_t* actor = &g_entities[n];
 			if (!actor->inuse || !actor->NPC || !actor->client || actor->health <= 0) continue;
+			bool inWater = false, inLava = false, inFire = false, inHazard = false, inSlow = false;
+			vec3_t liquidCenter{};
 			for (std::uint32_t i = 0; i < jkcraft::protocol::kMaxMinecraftCells; ++i)
 			{
-				if (!cellEntityNumbers[i] || cellEntities[i].kind < 2) continue;
+				if (cellEntities[i].kind < jkcraft::protocol::kCellWater) continue;
 				const auto& cell = cellEntities[i];
-				const float cx = (cell.x + 0.5f) * scale;
-				const float cy = -(cell.z + 0.5f) * scale;
-				const float cz = (cell.y + 0.5f) * scale;
-				if (actor->currentOrigin[0] + actor->maxs[0] < cx - half ||
-					actor->currentOrigin[0] + actor->mins[0] > cx + half ||
-					actor->currentOrigin[1] + actor->maxs[1] < cy - half ||
-					actor->currentOrigin[1] + actor->mins[1] > cy + half ||
-					actor->currentOrigin[2] + actor->maxs[2] < cz - half ||
-					actor->currentOrigin[2] + actor->mins[2] > cz + half) continue;
-				// A gentle buoyant/outward current keeps NPCs from walking through a liquid cell.
-				actor->client->ps.velocity[2] = std::max(actor->client->ps.velocity[2], cell.kind == 2 ? 55.0f : 35.0f);
-				float dx = actor->currentOrigin[0] - cx;
-				float dy = actor->currentOrigin[1] - cy;
+				if (!ActorOverlapsMinecraftCell(actor, cell, half, scale)) continue;
+				if (cell.kind == jkcraft::protocol::kCellWater || cell.kind == jkcraft::protocol::kCellLava)
+				{
+					inWater |= cell.kind == jkcraft::protocol::kCellWater;
+					inLava |= cell.kind == jkcraft::protocol::kCellLava;
+					VectorSet(liquidCenter, (cell.x + 0.5f) * scale,
+						-(cell.z + 0.5f) * scale, (cell.y + 0.5f) * scale);
+				}
+				else if (cell.kind == jkcraft::protocol::kCellFire) inFire = true;
+				else if (cell.kind == jkcraft::protocol::kCellHazard) inHazard = true;
+				else if (cell.kind == jkcraft::protocol::kCellSlow) inSlow = true;
+			}
+			if (inWater || inLava)
+			{
+				// A gentle buoyant/outward current keeps NPCs from blindly walking through liquids.
+				actor->client->ps.velocity[2] = std::max(actor->client->ps.velocity[2], inWater ? 55.0f : 35.0f);
+				float dx = actor->currentOrigin[0] - liquidCenter[0];
+				float dy = actor->currentOrigin[1] - liquidCenter[1];
 				const float length = std::sqrt(dx * dx + dy * dy);
 				if (length > 0.01f)
 				{
 					actor->client->ps.velocity[0] += dx / length * 10.0f;
 					actor->client->ps.velocity[1] += dy / length * 10.0f;
 				}
-				if (cell.kind == 3 && !(actor->watertype & CONTENTS_LAVA))
+			}
+			if (inSlow)
+			{
+				actor->client->ps.velocity[0] *= 0.35f;
+				actor->client->ps.velocity[1] *= 0.35f;
+				actor->client->ps.velocity[2] *= 0.6f;
+			}
+			const bool nativeLavaAlreadyHandlesDamage = inLava && (actor->watertype & CONTENTS_LAVA);
+			if ((inLava || inFire || inHazard) && !nativeLavaAlreadyHandlesDamage)
+			{
+				if (npcEnvironmentNext[n] > level.time + 2000) npcEnvironmentNext[n] = 0;
+				if (level.time >= npcEnvironmentNext[n])
 				{
-					if (npcLavaNext[n] > level.time + 1000) npcLavaNext[n] = 0;
-					if (level.time >= npcLavaNext[n])
+					npcEnvironmentNext[n] = level.time + (inFire ? 1000 : 500);
+					G_Damage(actor, nullptr, nullptr, nullptr, nullptr,
+						inLava ? 8 : inFire ? 4 : 2, DAMAGE_NO_KNOCKBACK,
+						inLava || inFire ? MOD_LAVA : MOD_SLIME);
+					if (inFire && actor->health > 0)
 					{
-						npcLavaNext[n] = level.time + 500;
-						G_Damage(actor, nullptr, nullptr, nullptr, nullptr, 8, 0, MOD_LAVA);
+						vec3_t up{0.0f, 0.0f, 1.0f};
+						G_PlayEffect("boba/fthrw", actor->currentOrigin, up);
 					}
 				}
-				break;
 			}
+		}
+	}
+
+	void AffectNativePlayerByMinecraftEnvironment(gentity_t* player, float scale,
+		const jkcraft::protocol::MinecraftState& state)
+	{
+		if (!player || !player->client) return;
+		if (state.controlMode == jkcraft::protocol::kControlMinecraft)
+		{
+			playerBurnUntil = 0;
+			playerBurnEffectNext = 0;
+			playerWasBurning = false;
+			return;
+		}
+		const bool inFire = ActorTouchesMinecraftCellKind(player, jkcraft::protocol::kCellFire, scale);
+		const bool inLava = ActorTouchesMinecraftCellKind(player, jkcraft::protocol::kCellLava, scale) ||
+			(player->watertype & CONTENTS_LAVA);
+		const bool inWater = ActorTouchesMinecraftCellKind(player, jkcraft::protocol::kCellWater, scale) ||
+			(player->watertype & CONTENTS_WATER);
+		const bool inHazard = ActorTouchesMinecraftCellKind(player, jkcraft::protocol::kCellHazard, scale);
+		const bool inSlow = ActorTouchesMinecraftCellKind(player, jkcraft::protocol::kCellSlow, scale);
+		if (inSlow)
+		{
+			player->client->ps.velocity[0] *= 0.35f;
+			player->client->ps.velocity[1] *= 0.35f;
+			player->client->ps.velocity[2] *= 0.6f;
+		}
+		if (level.time < playerBurnLastLevelTime ||
+			playerBurnUntil > level.time + 10000 || playerBurnEffectNext > level.time + 2000)
+		{
+			playerBurnUntil = 0;
+			playerBurnEffectNext = 0;
+			playerWasBurning = false;
+		}
+		playerBurnLastLevelTime = level.time;
+		if (inWater) playerBurnUntil = 0;
+		else if (inFire || inLava) playerBurnUntil = level.time + 4000;
+		const bool burning = !inWater && player->health > 0 &&
+			!(state.flags & jkcraft::protocol::kMinecraftDead) &&
+			((state.flags & jkcraft::protocol::kMinecraftOnFire) || level.time < playerBurnUntil);
+		if (inWater && playerWasBurning)
+		{
+			vec3_t steamOrigin;
+			VectorCopy(player->currentOrigin, steamOrigin);
+			steamOrigin[2] += 24.0f;
+			vec3_t up{0.0f, 0.0f, 1.0f};
+			G_PlayEffect(G_EffectIndex("env/water_steam2"), steamOrigin, up);
+		}
+		playerWasBurning = burning;
+		if (burning && level.time >= playerBurnEffectNext)
+		{
+			playerBurnEffectNext = level.time + 350;
+			vec3_t bodyOrigin;
+			VectorCopy(player->currentOrigin, bodyOrigin);
+			bodyOrigin[2] += 24.0f;
+			// The torso bolt's local forward axis points sideways. Emit at the
+			// player's current body position with an explicit world-up axis instead.
+			vec3_t up{0.0f, 0.0f, 1.0f};
+			G_PlayEffect(G_EffectIndex("env/small_fire"), bodyOrigin, up);
+		}
+		if (!inFire && !inHazard) return;
+		if (playerEnvironmentNext > level.time + 2000) playerEnvironmentNext = 0;
+		if (level.time < playerEnvironmentNext) return;
+		playerEnvironmentNext = level.time + (inFire ? 1000 : 500);
+		PushHurt(inFire ? jkcraft::protocol::kHurtFire : jkcraft::protocol::kHurtHazard,
+			2, 0, 0);
+	}
+
+	void MirrorNativePlayerVitals(gentity_t* player, const jkcraft::protocol::MinecraftState& state)
+	{
+		if (!player || !player->client || player->health <= 0 ||
+			(state.flags & jkcraft::protocol::kMinecraftDead) ||
+			!std::isfinite(state.healthFraction) || state.healthFraction <= 0.0f)
+		{
+			// The existing death event owns the transition to the JA death state.
+			return;
+		}
+		const int configuredMax = player->client->ps.stats[STAT_MAX_HEALTH];
+		const int maxHealth = std::max(1, configuredMax > 0 ? configuredMax : player->max_health);
+		const float fraction = std::max(0.0f, std::min(state.healthFraction, 1.0f));
+		const int displayedHealth = std::max(1, std::min(maxHealth,
+			static_cast<int>(std::lround(fraction * maxHealth))));
+		// Minecraft owns the only health pool. Keep JA's entity health and HUD stat
+		// in step without applying the hit to JA a second time.
+		player->health = displayedHealth;
+		player->client->ps.stats[STAT_HEALTH] = displayedHealth;
+		if (std::isfinite(state.absorption))
+		{
+			// Twenty Minecraft absorption points correspond to a full JA shield.
+			// Keep the native counter aligned so dispensers can refill depleted shields.
+			const float absorption = std::max(0.0f, std::min(state.absorption, 20.0f));
+			player->client->ps.stats[STAT_ARMOR] = std::max(0, std::min(maxHealth,
+				static_cast<int>(std::lround(absorption * maxHealth / 20.0f))));
 		}
 	}
 
@@ -361,7 +523,17 @@ namespace
 				G_FreeEntity(entity);
 				entity = nullptr;
 			}
-			if (i >= snapshot.count || cell.kind < 1 || cell.kind > 3)
+			if (i >= snapshot.count || cell.kind < jkcraft::protocol::kCellSolid ||
+				cell.kind > jkcraft::protocol::kCellSlow)
+			{
+				cellEntityNumbers[i] = 0;
+				cellEntities[i] = {};
+				continue;
+			}
+			cellEntities[i] = cell;
+			// Fire, damaging plants/magma and slowing blocks are overlap-only data.
+			// They do not need to consume a linked OpenJK entity slot.
+			if (cell.kind > jkcraft::protocol::kCellLava)
 			{
 				cellEntityNumbers[i] = 0;
 				continue;
@@ -375,13 +547,13 @@ namespace
 				const float half = scale * 0.5f;
 				VectorSet(entity->mins, -half, -half, -half);
 				VectorSet(entity->maxs, half, half, half);
-				entity->contents = cell.kind == 1 ? CONTENTS_SOLID | CONTENTS_MONSTERCLIP | CONTENTS_BOTCLIP :
-					cell.kind == 2 ? CONTENTS_WATER : CONTENTS_LAVA;
+				entity->contents = cell.kind == jkcraft::protocol::kCellSolid ?
+					CONTENTS_SOLID | CONTENTS_MONSTERCLIP | CONTENTS_BOTCLIP :
+					cell.kind == jkcraft::protocol::kCellWater ? CONTENTS_WATER : CONTENTS_LAVA;
 				vec3_t origin{(cell.x + 0.5f) * scale, -(cell.z + 0.5f) * scale, (cell.y + 0.5f) * scale};
 				G_SetOrigin(entity, origin);
 				gi.linkentity(entity);
 				cellEntityNumbers[i] = entity->s.number;
-				cellEntities[i] = cell;
 			}
 		}
 	}
@@ -461,6 +633,11 @@ namespace
 			}
 		}
 		return false;
+	}
+
+	bool MinecraftControls(const jkcraft::protocol::MinecraftState& state)
+	{
+		return state.controlMode == jkcraft::protocol::kControlMinecraft;
 	}
 
 	bool ReadHostState(jkcraft::protocol::HostState& state)
@@ -594,7 +771,7 @@ namespace
 		const bool forceGameplayNow = forceGameplay->integer != 0 && !remoteView &&
 			(!preloading || preloading->integer == 0) && ReadMinecraftState(minecraft) &&
 			(minecraft.flags & jkcraft::protocol::kMinecraftInWorld) &&
-			!(minecraft.flags & jkcraft::protocol::kMinecraftDead);
+			!(minecraft.flags & jkcraft::protocol::kMinecraftDead) && MinecraftControls(minecraft);
 		if (forceGameplayNow)
 		{
 			return false;
@@ -625,6 +802,12 @@ namespace
 		// pass and may briefly draw/animate the hidden Jedi model.
 		cvar_t* currentThirdPerson = gi.cvar("cg_thirdperson", "0", 0);
 		cvar_t* currentAngle = gi.cvar("cg_thirdPersonAngle", "0", 0);
+		if (lastControlMode != jkcraft::protocol::kControlMinecraft)
+		{
+			savedNativeThirdPerson = currentThirdPerson->integer;
+			savedNativeThirdPersonAngle = currentAngle->value;
+			lastControlMode = jkcraft::protocol::kControlMinecraft;
+		}
 		if (cameraMode != lastCameraMode || currentThirdPerson->integer != 0 || currentAngle->integer != 0)
 		{
 			gi.cvar_set("cg_thirdperson", "0");
@@ -632,6 +815,118 @@ namespace
 			lastCameraMode = cameraMode;
 		}
 		(void)scale;
+	}
+
+	void RestoreJediCameraSettings()
+	{
+		if (lastControlMode == jkcraft::protocol::kControlJedi)
+		{
+			return;
+		}
+		gi.cvar_set("cg_thirdperson", savedNativeThirdPerson ? "1" : "0");
+		gi.cvar_set("cg_thirdPersonAngle", va("%.3f", savedNativeThirdPersonAngle));
+		lastControlMode = jkcraft::protocol::kControlJedi;
+		lastCameraMode = ~0u;
+		gi.Printf("JKCraft: native Jedi camera and player control active\n");
+	}
+
+	// Native pmove keeps animation and movement-lock state while Minecraft is
+	// puppeting the player.  Landing or special-animation flags can therefore
+	// survive the handoff and hold Jaden in place until a jump replaces the
+	// animation.  Clear only transient locomotion state once, then let ordinary
+	// Jedi Academy movement choose the correct idle/run animation next frame.
+	void ReleaseNativePlayerControl(gentity_t* player)
+	{
+		if (!player || !player->client)
+		{
+			return;
+		}
+		playerState_t& ps = player->client->ps;
+		ps.legsAnimTimer = 0;
+		ps.torsoAnimTimer = 0;
+		ps.weaponTime = 0;
+		ps.pm_time = 0;
+		ps.pm_flags &= ~(PMF_JUMP_HELD | PMF_JUMPING | PMF_BACKWARDS_JUMP |
+			PMF_BACKWARDS_RUN | PMF_ALL_TIMES | PMF_TRIGGER_PUSHED |
+			PMF_STUCK_TO_WALL | PMF_SLOW_MO_FALL | PMF_BUMPED |
+			PMF_JUMP_DUCKED | PMF_FIX_MINS);
+		VectorClear(ps.velocity);
+		VectorClear(ps.moveDir);
+		ps.groundEntityNum = ENTITYNUM_NONE;
+		player->s.groundEntityNum = ENTITYNUM_NONE;
+
+		// The puppet may legally sit a fraction inside a BSP plane or Minecraft
+		// cell because native pmove was not authoritative.  Test complete standing
+		// bounds at nearby positions instead of sweeping from an already-solid
+		// start (such a sweep can never escape startsolid).  Prefer a tiny vertical
+		// lift, then search only a few units sideways so the handoff cannot skip a
+		// wall or noticeably teleport the player.
+		vec3_t original;
+		VectorCopy(ps.origin, original);
+		vec3_t standMins{player->mins[0], player->mins[1], DEFAULT_MINS_2};
+		vec3_t standMaxs{player->maxs[0], player->maxs[1],
+			static_cast<float>(player->client->standheight)};
+		static const float offsets[][3] = {
+			{0, 0, 2}, {0, 0, 4}, {0, 0, 8}, {0, 0, 12}, {0, 0, 16}, {0, 0, 24},
+			{2, 0, 2}, {-2, 0, 2}, {0, 2, 2}, {0, -2, 2},
+			{4, 0, 2}, {-4, 0, 2}, {0, 4, 2}, {0, -4, 2},
+			{4, 4, 2}, {4, -4, 2}, {-4, 4, 2}, {-4, -4, 2},
+			{8, 0, 4}, {-8, 0, 4}, {0, 8, 4}, {0, -8, 4},
+		};
+		const int mask = player->clipmask ? player->clipmask : MASK_PLAYERSOLID;
+		bool released = false;
+		for (const auto& offset : offsets)
+		{
+			vec3_t candidate{
+				original[0] + offset[0], original[1] + offset[1], original[2] + offset[2]};
+			trace_t occupancy{};
+			gi.trace(&occupancy, candidate, standMins, standMaxs, candidate,
+				player->s.number, mask, (EG2_Collision)0, 0);
+			if (occupancy.startsolid || occupancy.allsolid)
+			{
+				continue;
+			}
+			VectorCopy(standMins, player->mins);
+			VectorCopy(standMaxs, player->maxs);
+			ps.pm_flags &= ~PMF_DUCKED;
+			G_SetOrigin(player, candidate);
+			gi.linkentity(player);
+			released = true;
+			gi.Printf("JKCraft: Jedi handoff found standing clearance at offset %.1f %.1f %.1f\n",
+				offset[0], offset[1], offset[2]);
+			break;
+		}
+
+		// A genuinely low passage may have no standing solution nearby.  Enter the
+		// ordinary JA crouched state automatically; the next clear area lets pmove
+		// stand up normally, matching what pressing C used to repair manually.
+		if (!released)
+		{
+			vec3_t crouchMaxs;
+			VectorCopy(standMaxs, crouchMaxs);
+			crouchMaxs[2] = static_cast<float>(player->client->crouchheight);
+			vec3_t candidate;
+			VectorCopy(original, candidate);
+			candidate[2] += 1.0f;
+			trace_t occupancy{};
+			gi.trace(&occupancy, candidate, standMins, crouchMaxs, candidate,
+				player->s.number, mask, (EG2_Collision)0, 0);
+			if (!occupancy.startsolid && !occupancy.allsolid)
+			{
+				VectorCopy(standMins, player->mins);
+				VectorCopy(crouchMaxs, player->maxs);
+				ps.pm_flags |= PMF_DUCKED;
+				G_SetOrigin(player, candidate);
+				gi.linkentity(player);
+				released = true;
+				gi.Printf("JKCraft: Jedi handoff used automatic crouch clearance\n");
+			}
+		}
+		if (!released)
+		{
+			gi.Printf("JKCraft: WARNING - no nearby Jedi handoff clearance found\n");
+		}
+		gi.Printf("JKCraft: released native Jedi locomotion (animation reset)\n");
 	}
 
 	void PublishActors(gentity_t* player, float scale)
@@ -1184,6 +1479,8 @@ void JKCraft_Precache()
 {
 #if defined(_WIN32)
 	G_EffectIndex("boba/fthrw");
+	G_EffectIndex("env/small_fire");
+	G_EffectIndex("env/water_steam2");
 	G_EffectIndex("disruptor/flesh_impact");
 	G_EffectIndex("env/med_explode");
 	G_EffectIndex("env/small_explode");
@@ -1199,7 +1496,7 @@ bool JKCraft_OverrideFirstPersonCamera(float viewOrigin[3], float viewAngles[3])
 	}
 	jkcraft::protocol::MinecraftState state{};
 	if (!ReadMinecraftState(state) || !(state.flags & jkcraft::protocol::kMinecraftInWorld) ||
-		(state.flags & jkcraft::protocol::kMinecraftDead))
+		(state.flags & jkcraft::protocol::kMinecraftDead) || !MinecraftControls(state))
 	{
 		return false;
 	}
@@ -1276,7 +1573,7 @@ bool JKCraft_ForceFirstPerson()
 	jkcraft::protocol::MinecraftState state{};
 	return ReadMinecraftState(state) &&
 		(state.flags & jkcraft::protocol::kMinecraftInWorld) &&
-		!(state.flags & jkcraft::protocol::kMinecraftDead);
+		!(state.flags & jkcraft::protocol::kMinecraftDead) && MinecraftControls(state);
 #else
 	return false;
 #endif
@@ -1292,7 +1589,7 @@ bool JKCraft_HideNativePlayer()
 	jkcraft::protocol::MinecraftState state{};
 	return ReadMinecraftState(state) &&
 		(state.flags & jkcraft::protocol::kMinecraftInWorld) &&
-		!(state.flags & jkcraft::protocol::kMinecraftDead);
+		!(state.flags & jkcraft::protocol::kMinecraftDead) && MinecraftControls(state);
 #else
 	return false;
 #endif
@@ -1325,7 +1622,7 @@ bool JKCraft_ShouldReleaseStaleCamera()
 	}
 	jkcraft::protocol::MinecraftState minecraft{};
 	if (!ReadMinecraftState(minecraft) || !(minecraft.flags & jkcraft::protocol::kMinecraftInWorld) ||
-		(minecraft.flags & jkcraft::protocol::kMinecraftDead))
+		(minecraft.flags & jkcraft::protocol::kMinecraftDead) || !MinecraftControls(minecraft))
 	{
 		gameplaySince = 0;
 		cinematicSkipSince = 0;
@@ -1472,7 +1769,7 @@ bool JKCraft_GameplayOwnsCameraNow()
 	jkcraft::protocol::MinecraftState minecraft{};
 	if (!ReadMinecraftState(minecraft) ||
 		!(minecraft.flags & jkcraft::protocol::kMinecraftInWorld) ||
-		(minecraft.flags & jkcraft::protocol::kMinecraftDead))
+		(minecraft.flags & jkcraft::protocol::kMinecraftDead) || !MinecraftControls(minecraft))
 	{
 		return false;
 	}
@@ -1579,16 +1876,112 @@ bool JKCraft_PlayerPuppeted()
 	return ReadMinecraftState(state) &&
 		(state.flags & jkcraft::protocol::kMinecraftInWorld) &&
 		!(state.flags & jkcraft::protocol::kMinecraftDead) &&
+		MinecraftControls(state) &&
 		TeleportAcknowledged(state.teleportAck);
 #else
 	return false;
 #endif
 }
 
+bool JKCraft_PlayerUsesMinecraftVitals()
+{
+#if defined(_WIN32)
+	if (!puppet || !puppet->integer || HostCinematic())
+	{
+		return false;
+	}
+	jkcraft::protocol::MinecraftState state{};
+	return ReadMinecraftState(state) &&
+		(state.flags & jkcraft::protocol::kMinecraftInWorld) &&
+		!(state.flags & jkcraft::protocol::kMinecraftDead) &&
+		TeleportAcknowledged(state.teleportAck);
+#else
+	return false;
+#endif
+}
+
+void JKCraft_ResolveNativePlayerBlocks(gentity_s* player, const float oldOrigin[3])
+{
+#if defined(_WIN32)
+	if (!player || !player->client || !oldOrigin || HostCinematic())
+	{
+		return;
+	}
+	jkcraft::protocol::MinecraftState state{};
+	if (!ReadMinecraftState(state) || MinecraftControls(state) ||
+		!(state.flags & jkcraft::protocol::kMinecraftInWorld))
+	{
+		return;
+	}
+
+	auto overlapsSolidCell = [player](const vec3_t origin)
+	{
+		const float epsilon = 0.01f;
+		for (std::uint32_t i = 0; i < jkcraft::protocol::kMaxMinecraftCells; ++i)
+		{
+			if (cellEntities[i].kind != 1) continue;
+			const int number = cellEntityNumbers[i];
+			if (number <= 0 || number >= globals.num_entities) continue;
+			const gentity_t* block = &g_entities[number];
+			if (!block->inuse || !block->classname ||
+				std::strcmp(block->classname, "jkcraft_minecraft_cell")) continue;
+			if (origin[0] + player->maxs[0] <= block->currentOrigin[0] + block->mins[0] + epsilon ||
+				origin[0] + player->mins[0] >= block->currentOrigin[0] + block->maxs[0] - epsilon ||
+				origin[1] + player->maxs[1] <= block->currentOrigin[1] + block->mins[1] + epsilon ||
+				origin[1] + player->mins[1] >= block->currentOrigin[1] + block->maxs[1] - epsilon ||
+				origin[2] + player->maxs[2] <= block->currentOrigin[2] + block->mins[2] + epsilon ||
+				origin[2] + player->mins[2] >= block->currentOrigin[2] + block->maxs[2] - epsilon)
+			{
+				continue;
+			}
+			return true;
+		}
+		return false;
+	};
+
+	vec3_t desired;
+	VectorCopy(player->client->ps.origin, desired);
+	if (!overlapsSolidCell(desired))
+	{
+		return;
+	}
+
+	// Resolve vertical motion first so normal step-up onto a block survives,
+	// then X/Y independently so the Jedi slides along walls instead of being
+	// rolled all the way back to the previous frame.
+	vec3_t resolved;
+	VectorCopy(oldOrigin, resolved);
+	const int axes[] = {2, 0, 1};
+	for (const int axis : axes)
+	{
+		vec3_t candidate;
+		VectorCopy(resolved, candidate);
+		candidate[axis] = desired[axis];
+		if (!overlapsSolidCell(candidate))
+		{
+			resolved[axis] = desired[axis];
+		}
+		else
+		{
+			player->client->ps.velocity[axis] = 0.0f;
+		}
+	}
+	VectorCopy(resolved, player->client->ps.origin);
+	static bool loggedCollision = false;
+	if (!loggedCollision)
+	{
+		loggedCollision = true;
+		gi.Printf("JKCraft: native Jedi collision with Minecraft blocks active\n");
+	}
+#else
+	(void)player; (void)oldOrigin;
+#endif
+}
+
 bool JKCraft_CanPickUpItem(int kind)
 {
 #if defined(_WIN32)
-	if (!JKCraft_PlayerPuppeted())
+	if (!JKCraft_PlayerUsesMinecraftVitals())
 	{
 		return false;
 	}
@@ -1615,7 +2008,7 @@ bool JKCraft_ForwardPickup(int kind, int quantity)
 {
 #if defined(_WIN32)
 	if ((kind != 1 && kind != 2) || quantity <= 0 || quantity > 1000 ||
-		!JKCraft_PlayerPuppeted() || !OpenLink() ||
+		!JKCraft_PlayerUsesMinecraftVitals() || !OpenLink() ||
 		header->magic != jkcraft::protocol::kMagic || header->version != jkcraft::protocol::kVersion)
 	{
 		return false;
@@ -1640,10 +2033,6 @@ void JKCraft_ApplyPlayer(gentity_s* player)
 		unitsPerBlock = gi.cvar("jkc_units_per_block", "32", CVAR_ARCHIVE);
 		cameraSync = gi.cvar("jkc_camera_sync", "1", CVAR_ARCHIVE);
 	}
-	if (!puppet->integer)
-	{
-		return;
-	}
 	if (HostCinematic())
 	{
 		// Let scripted JA cameras and remote view entities own the native player.
@@ -1652,8 +2041,7 @@ void JKCraft_ApplyPlayer(gentity_s* player)
 	}
 
 	jkcraft::protocol::MinecraftState state{};
-	if (!ReadMinecraftState(state) || !(state.flags & jkcraft::protocol::kMinecraftInWorld) ||
-		!TeleportAcknowledged(state.teleportAck))
+	if (!ReadMinecraftState(state) || !(state.flags & jkcraft::protocol::kMinecraftInWorld))
 	{
 		ClearMinecraftCells(true);
 		return;
@@ -1665,15 +2053,38 @@ void JKCraft_ApplyPlayer(gentity_s* player)
 		SyncMinecraftCells(scale, hostState.worldId);
 		SyncMinecraftMobTargets(scale, hostState.worldId);
 		AssignMinecraftMobTargetsToFriendlyNpcs();
-		AffectNpcsByMinecraftFluids(scale);
+		AffectNpcsByMinecraftEnvironment(scale);
+		AffectNativePlayerByMinecraftEnvironment(player, scale, state);
 	}
 	DrainGameEvents(player, scale);
+	MirrorNativePlayerVitals(player, state);
 	PublishForceState(player);
+	PublishActors(player, scale);
+
+	const bool controlChanged = state.controlMode != lastPlayerControlMode ||
+		state.controlSequence != lastPlayerControlSequence;
+	if (!MinecraftControls(state) && controlChanged)
+	{
+		ReleaseNativePlayerControl(player);
+	}
+	lastPlayerControlMode = state.controlMode;
+	lastPlayerControlSequence = state.controlSequence;
+
+	// World/actor/block synchronization stays live in Jedi mode. Only the native
+	// player transform, camera and movement ownership are conditional.
+	if (!puppet->integer || !MinecraftControls(state))
+	{
+		RestoreJediCameraSettings();
+		return;
+	}
+	if (!TeleportAcknowledged(state.teleportAck))
+	{
+		return;
+	}
 	if ((state.flags & jkcraft::protocol::kMinecraftDead) || player->health <= 0)
 	{
 		return;
 	}
-	PublishActors(player, scale);
 	ApplyCameraSettings(state, scale);
 	if (std::isfinite(state.eyeHeight))
 	{
@@ -1812,18 +2223,32 @@ bool JKCraft_ForwardPlayerDamage(gentity_s* target, gentity_s* attacker,
 	{
 		return false;
 	}
-	int kind = 3;
+	int kind = jkcraft::protocol::kHurtOther;
 	if (meansOfDeath == MOD_MELEE || meansOfDeath == MOD_SABER)
 	{
-		kind = 0;
+		kind = jkcraft::protocol::kHurtMelee;
 	}
 	else if (meansOfDeath == MOD_FORCE_GRIP || meansOfDeath == MOD_FORCE_LIGHTNING || meansOfDeath == MOD_FORCE_DRAIN)
 	{
-		kind = 2;
+		kind = jkcraft::protocol::kHurtMagic;
 	}
 	else if (meansOfDeath >= MOD_BRYAR && meansOfDeath <= MOD_LASERTRIP_ALT)
 	{
-		kind = 1;
+		kind = jkcraft::protocol::kHurtProjectile;
+	}
+	else if (meansOfDeath == MOD_LAVA)
+	{
+		kind = jkcraft::protocol::kHurtLava;
+		const float scale = unitsPerBlock && unitsPerBlock->value > 0.001f ? unitsPerBlock->value : 32.0f;
+		if (ActorTouchesMinecraftCellKind(target, jkcraft::protocol::kCellLava, scale))
+		{
+			// Jedi Academy's lava tick is much faster and larger than Minecraft's.
+			// Consume every native tick, but forward Minecraft-like damage only twice a second.
+			if (playerMinecraftLavaNext > level.time + 2000) playerMinecraftLavaNext = 0;
+			if (level.time < playerMinecraftLavaNext) return true;
+			playerMinecraftLavaNext = level.time + 500;
+			damage = 8; // CombatBalance converts this to four Minecraft health points.
+		}
 	}
 	const int attackerId = attacker && attacker->inuse && attacker->client && attacker->NPC ? attacker->s.number : 0;
 	const bool forwarded = PushHurt(kind, damage, attackerId, 0);
@@ -1844,14 +2269,26 @@ bool JKCraft_ForwardMinecraftMobDamage(gentity_s* target, gentity_s* attacker,
 	int damage, int meansOfDeath)
 {
 #if defined(_WIN32)
+	const bool playerAttack = attacker && attacker->inuse && attacker->client &&
+		attacker->s.number == 0;
+	const bool friendlyNpcAttack = attacker && attacker->inuse && attacker->NPC &&
+		attacker->client && attacker->client->playerTeam == TEAM_PLAYER;
 	if (!target || !target->inuse || damage <= 0 || !target->classname ||
 		std::strcmp(target->classname, "jkcraft_minecraft_mob") ||
-		!attacker || !attacker->inuse || !attacker->NPC || !attacker->client ||
-		attacker->client->playerTeam != TEAM_PLAYER ||
+		(!playerAttack && !friendlyNpcAttack) ||
 		!OpenLink() || header->magic != jkcraft::protocol::kMagic ||
 		header->version != jkcraft::protocol::kVersion)
 	{
 		return false;
+	}
+	if (playerAttack)
+	{
+		jkcraft::protocol::MinecraftState state{};
+		if (!ReadMinecraftState(state) || MinecraftControls(state) ||
+			!(state.flags & jkcraft::protocol::kMinecraftInWorld))
+		{
+			return false;
+		}
 	}
 	std::uint32_t minecraftId = 0;
 	for (std::uint32_t i = 0; i < jkcraft::protocol::kMaxMobGround; ++i)
@@ -1876,8 +2313,8 @@ bool JKCraft_ForwardMinecraftMobDamage(gentity_s* target, gentity_s* attacker,
 	if (forwarded && !loggedMinecraftMobHit)
 	{
 		loggedMinecraftMobHit = true;
-		gi.Printf("JKCraft: first native JA NPC shot hit Minecraft mob %u (%d damage)\n",
-			minecraftId, damage);
+		gi.Printf("JKCraft: first native JA %s hit Minecraft mob %u (%d damage)\n",
+			playerAttack ? "player" : "NPC", minecraftId, damage);
 	}
 	return forwarded;
 #else

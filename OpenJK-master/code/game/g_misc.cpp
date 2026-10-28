@@ -27,6 +27,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "g_functions.h"
 #include "g_nav.h"
 #include "g_items.h"
+#include "jkcraft_game.h"
 #include "../cgame/cg_local.h"
 #include "b_local.h"
 
@@ -1230,6 +1231,8 @@ void health_think( gentity_t *ent )
 	// Still has power to give
 	if (ent->count > 0)
 	{
+		const bool minecraftVitals = ent->enemy->s.number == 0 &&
+			JKCraft_PlayerUsesMinecraftVitals();
 		// For every 3 points of health, you get 1 point of armor
 		// BUT!!! after health is filled up, you get the full energy going to armor
 
@@ -1248,10 +1251,22 @@ void health_think( gentity_t *ent )
 		{
 			dif = ent->count;
 		}
+		if (minecraftVitals && !JKCraft_CanPickUpItem(1))
+		{
+			dif = 0;
+		}
 
+		if (dif > 0 && minecraftVitals && !JKCraft_ForwardPickup(1, dif))
+		{
+			ent->nextthink = level.time + 50;
+			return;
+		}
 		if ((ITM_AddHealth (ent->enemy,dif)) && (dif>0))
 		{
-			ITM_AddArmor (ent->enemy,1);	// 1 armor for every 3 health
+			if (!minecraftVitals || (JKCraft_CanPickUpItem(2) && JKCraft_ForwardPickup(2, 1)))
+			{
+				ITM_AddArmor (ent->enemy,1);	// 1 armor for every 3 health
+			}
 
 			ent->count-=dif;
 			ent->nextthink = level.time + 10;
@@ -1275,7 +1290,14 @@ void health_think( gentity_t *ent )
 				dif = ent->count;
 			}
 
-			if ((!ITM_AddArmor(ent->enemy,dif)) || (dif<=0))
+			if (minecraftVitals && dif > 0 && JKCraft_CanPickUpItem(2) &&
+				!JKCraft_ForwardPickup(2, dif))
+			{
+				ent->nextthink = level.time + 50;
+				return;
+			}
+			if ((minecraftVitals && !JKCraft_CanPickUpItem(2)) ||
+				(!ITM_AddArmor(ent->enemy,dif)) || (dif<=0))
 			{
 				ent->e_UseFunc = useF_health_use;
 				ent->e_ThinkFunc = thinkF_NULL;
@@ -2034,7 +2056,12 @@ void shield_power_converter_use( gentity_t *self, gentity_t *other, gentity_t *a
 	{
 		self->setTime = level.time + 100;
 
+		const bool minecraftVitals = JKCraft_PlayerUsesMinecraftVitals();
 		dif = 100 - activator->client->ps.stats[STAT_ARMOR]; // FIXME: define for max armor?
+		if (minecraftVitals && !JKCraft_CanPickUpItem(2))
+		{
+			dif = 0;
+		}
 
 		if ( dif > 0 && self->count )	// Already at full armor?..and do I even have anything to give
 		{
@@ -2050,6 +2077,10 @@ void shield_power_converter_use( gentity_t *self, gentity_t *other, gentity_t *a
 			if ( self->count < add )
 			{
 				add = self->count;
+			}
+			if (minecraftVitals && !JKCraft_ForwardPickup(2, add))
+			{
+				return;
 			}
 
 			self->count -= add;

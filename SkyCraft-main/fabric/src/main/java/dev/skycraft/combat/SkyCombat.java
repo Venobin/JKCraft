@@ -179,24 +179,36 @@ public final class SkyCombat {
 		}
 	}
 
-	/** Applies a real native OpenJK NPC weapon hit to the addressed hostile Minecraft mob. */
+	/** Applies a real native OpenJK weapon hit to the addressed Minecraft mob. */
 	public static void hurtMinecraftMob(MinecraftServer server, int entityId, int kind,
 		float jediDamage, int attackerFormId) {
 		if (entityId <= 0 || jediDamage <= 0.0F) return;
 		for (ServerLevel level : server.getAllLevels()) {
 			Entity entity = level.getEntity(entityId);
-			if (!(entity instanceof Mob mob) || !(mob instanceof Enemy) || !mob.isAlive()) continue;
+			if (!(entity instanceof Mob mob) || !mob.isAlive()) continue;
 			SkyrimActorEntity attacker = PROXIES.get(attackerFormId);
 			if (attacker != null && (attacker.level() != level || attacker.distanceToSqr(mob) > 32.0 * 32.0)) {
 				attacker = null;
 			}
+			ServerPlayer playerAttacker = attackerFormId == 0
+				? server.getPlayerList().getPlayers().stream()
+					.filter(player -> player.level() == level && player.distanceToSqr(mob) <= 32.0 * 32.0)
+					.findFirst().orElse(null)
+				: null;
 			DamageSources sources = level.damageSources();
-			DamageSource source = switch (kind) {
-				case Proto.HURT_MELEE -> attacker != null ? sources.mobAttack(attacker) : sources.generic();
-				case Proto.HURT_PROJECTILE -> attacker != null ? sources.mobProjectile(attacker, attacker) : sources.generic();
-				case Proto.HURT_MAGIC -> attacker != null ? sources.indirectMagic(attacker, attacker) : sources.magic();
-				default -> sources.generic();
-			};
+			DamageSource source;
+			if (playerAttacker != null) {
+				source = kind == Proto.HURT_MAGIC
+					? sources.indirectMagic(playerAttacker, playerAttacker)
+					: sources.playerAttack(playerAttacker);
+			} else {
+				source = switch (kind) {
+					case Proto.HURT_MELEE -> attacker != null ? sources.mobAttack(attacker) : sources.generic();
+					case Proto.HURT_PROJECTILE -> attacker != null ? sources.mobProjectile(attacker, attacker) : sources.generic();
+					case Proto.HURT_MAGIC -> attacker != null ? sources.indirectMagic(attacker, attacker) : sources.magic();
+					default -> sources.generic();
+				};
+			}
 			float damage = CombatBalance.jediToMinecraft(jediDamage);
 			if (damage > 0.0F) {
 				mob.hurtServer(level, source, damage);
@@ -266,6 +278,9 @@ public final class SkyCombat {
 			case Proto.HURT_MELEE -> attacker != null ? sources.mobAttack(attacker) : sources.generic();
 			case Proto.HURT_PROJECTILE -> attacker != null ? sources.mobProjectile(attacker, attacker) : sources.generic();
 			case Proto.HURT_MAGIC -> attacker != null ? sources.indirectMagic(attacker, attacker) : sources.magic();
+			case Proto.HURT_FIRE -> sources.inFire();
+			case Proto.HURT_LAVA -> sources.lava();
+			case Proto.HURT_HAZARD -> sources.cactus();
 			default -> sources.generic();
 		};
 		float damage = CombatBalance.jediToMinecraft(skyrimDamage);

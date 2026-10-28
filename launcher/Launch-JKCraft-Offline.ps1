@@ -4,6 +4,10 @@ param(
     [int]$Height = 720,
     [int]$Fullscreen = 0,
     [int]$ConsoleLogs = 0,
+    [ValidateSet('single', 'host', 'join')]
+    [string]$SessionMode = 'single',
+    [string]$JoinAddress = '',
+    [int]$ServerPort = 25565,
     [switch]$CheckOnly
 )
 
@@ -23,12 +27,15 @@ $stopMarker = Join-Path $userData 'stop-request.txt'
 $readyMarker = Join-Path $userData 'minecraft-runtime-ready.txt'
 $JediAcademyGameData = Join-Path $root 'GameResources\JediAcademy\GameData'
 $MinecraftDataRoot = Join-Path $root 'GameResources\Minecraft\GameData'
+$discordAppIdFile = Join-Path $root 'DiscordApplicationId.txt'
 
 if ($Nickname -cnotmatch '^[A-Za-z0-9_]{3,16}$') {
     throw 'JKCraft: nickname must contain 3-16 Latin letters, digits or underscores.'
 }
 if ($Width -lt 640 -or $Width -gt 3840 -or $Height -lt 480 -or $Height -gt 2160 -or
-    $Fullscreen -notin @(0, 1) -or $ConsoleLogs -notin @(0, 1)) {
+    $Fullscreen -notin @(0, 1) -or $ConsoleLogs -notin @(0, 1) -or
+    $ServerPort -lt 1024 -or $ServerPort -gt 65535 -or
+    ($SessionMode -eq 'join' -and [string]::IsNullOrWhiteSpace($JoinAddress))) {
     throw 'JKCraft: invalid resolution or fullscreen setting.'
 }
 foreach ($required in @(
@@ -41,11 +48,21 @@ foreach ($required in @(
     $openJK,
     (Join-Path $openJKRoot 'OpenJK\jagamex86.dll'),
     (Join-Path $openJKRoot 'rdsp-vanilla_x86.dll'),
-    (Join-Path $root 'mods\jkcraft-0.1.3.jar')
+    (Join-Path $root 'mods\jkcraft-0.1.4.jar')
 )) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "JKCraft: required file is missing: $required"
     }
+}
+
+if (Test-Path -LiteralPath $discordAppIdFile -PathType Leaf) {
+    $discordAppId = (Get-Content -LiteralPath $discordAppIdFile -Raw).Trim()
+    if ($discordAppId -ne '0' -and $discordAppId -notmatch '^[0-9]{17,20}$') {
+        throw 'JKCraft: DiscordApplicationId.txt must contain a Discord application ID or 0 to disable Rich Presence.'
+    }
+    $env:JKCRAFT_DISCORD_APP_ID = $discordAppId
+} else {
+    Remove-Item Env:JKCRAFT_DISCORD_APP_ID -ErrorAction SilentlyContinue
 }
 
 if ($CheckOnly) {
@@ -68,6 +85,9 @@ $env:JKCRAFT_PLAYTEST = '1'
 $env:JKCRAFT_SHOW_MINECRAFT = '0'
 $env:JKCRAFT_KEEP_MINECRAFT = '1'
 $env:JKCRAFT_USERNAME = $Nickname
+$env:JKCRAFT_SESSION_MODE = $SessionMode
+$env:JKCRAFT_JOIN_ADDRESS = $JoinAddress.Trim()
+$env:JKCRAFT_SERVER_PORT = [string]$ServerPort
 $gradleArgs = @('--no-daemon', '--console=plain')
 if (Test-Path -LiteralPath $readyMarker) { $gradleArgs += '--offline' }
 

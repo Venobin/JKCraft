@@ -972,7 +972,10 @@ int SV_PointContents( const vec3_t p, int passEntityNum ) {
 		// might intersect, so do an exact clip
 		clipHandle = SV_ClipHandleForEntity( hit );
 
-		c2 = CM_TransformedPointContents (p, clipHandle, hit->s.origin, hit->s.angles);
+		// Dynamic non-client entities (including JKCraft's Minecraft liquid cells)
+		// are positioned through currentOrigin by G_SetOrigin. Their s.origin is
+		// only updated for client entities and can still be {0, 0, 0} here.
+		c2 = CM_TransformedPointContents (p, clipHandle, hit->currentOrigin, hit->currentAngles);
 		// Temp box models report CONTENTS_BODY regardless of entity->contents.
 		// JKCraft's invisible Minecraft liquid cells need their real contents for
 		// NPC water physics and the original lava damage path.

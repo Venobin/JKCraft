@@ -33,6 +33,20 @@ public final class InputBridge {
 		SkyLink.drainInput((type, code, a, b, c) -> dispatch(minecraft, type, code, a, b, c));
 	}
 
+	/**
+	 * Drains events which must remain live while OpenJK owns movement and camera. Keyboard,
+	 * mouse and menu events are deliberately discarded; combat, pickups and the mode toggle
+	 * still cross the bridge.
+	 */
+	public static void drainBridgeEvents(Minecraft minecraft) {
+		SkyLink.drainInput((type, code, a, b, c) -> {
+			if (type == Proto.IN_HURT || type == Proto.IN_PICKUP ||
+				type == Proto.IN_MOB_HURT || type == Proto.IN_TOGGLE_CONTROL) {
+				dispatch(minecraft, type, code, a, b, c);
+			}
+		});
+	}
+
 	/** Drops queued host input while a JA menu, loading screen or cinematic owns control. */
 	public static void discard() {
 		SkyLink.drainInput((type, code, a, b, c) -> { });
@@ -91,6 +105,7 @@ public final class InputBridge {
 					minecraft.gui.setScreen(new PauseScreen(true));
 				}
 			}
+			case Proto.IN_TOGGLE_CONTROL -> SkyClient.toggleControlMode();
 			default -> {
 			}
 		}

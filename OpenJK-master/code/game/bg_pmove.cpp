@@ -5535,7 +5535,11 @@ static void PM_SetWaterLevelAtPoint( vec3_t org, int *waterlevel, int *watertype
 	point[0] = org[0];
 	point[1] = org[1];
 	point[2] = org[2] + DEFAULT_MINS_2 + 1;
-	if (gi.totalMapContents() & (MASK_WATER|CONTENTS_LADDER))
+	// JKCraft can add water/lava as linked entities after the BSP was loaded, so
+	// CM_TotalMapContents cannot know about them.  SV_PointContents already merges
+	// dynamic entities; always sampling it keeps native Jedi swimming physics active
+	// in Minecraft liquids even on maps whose BSP contains no water at all.
+	if (pm->pointcontents)
 	{
 		cont = pm->pointcontents( point, pm->ps->clientNum );
 
